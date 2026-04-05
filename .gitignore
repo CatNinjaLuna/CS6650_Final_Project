@@ -42,3 +42,7 @@ application-local.yml
 .DS_Store
 
 .idea/
+
+isaac-sim/*
+!isaac-sim/Gantt.png
+!isaac-sim/.gitkeep
