@@ -2,7 +2,7 @@
 
 CS6650 Final Project · Northeastern University
 
-Team: Carolina (Yuhan) Li · Wenxuan Nie · Zhongjie Ren · Zhongyi Shi
+Team: Carolina Li · Wenxuan Nie · Zhongjie Ren · Zhongyi Shi
 
 Advisor: Prof. Vishal Rajpal
 
