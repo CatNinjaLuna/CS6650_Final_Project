@@ -108,7 +108,12 @@ Expected worker3 log:
 ```
 INFO  worker3.IsaacSimClient : → Isaac Sim robot=panda-01 joints=[0.1, -0.3, 0.0, -1.5, 0.0, 1.8, 0.7]
 INFO  worker3.IsaacSimClient : ← Isaac Sim status=200 OK
+INFO  worker3.SqsPoller      : Sim result: {"status":"ok","applied_joints":{"panda_joint1":0.1,...},"joint_count":7}
 ```
+
+### End-to-End Test Result
+
+![worker3 end-to-end test](docs/screenshots/worker3_e2e_test.png)
 
 ## SQS Queue
 
