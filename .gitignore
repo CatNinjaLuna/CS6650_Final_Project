@@ -41,3 +41,4 @@ application-local.yml
 ### Mac OS ###
 .DS_Store
 
+.idea/
