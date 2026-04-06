@@ -55,11 +55,11 @@ function ParamPanel({ lab }) {
 // TODO: replace mock data with live WebSocket payload from aggregator
 function ResultPanel() {
     const results = [
-        { label: "arm-1 reach", value: "92%" },
-        { label: "arm-1 collision", value: "high", warn: true },
-        { label: "arm-1 EE x", value: "0.41m" },
-        { label: "arm-1 EE y", value: "0.28m" },
-        { label: "arm-1 cycle", value: "2.3s" },
+        { label: "EE x", value: "0.41m" },
+        { label: "EE y", value: "0.28m" },
+        { label: "EE z", value: "0.35m" },
+        { label: "collision", value: "false", warn: false },
+        { label: "latency", value: "14ms" },
     ]
 
     const workers = [
