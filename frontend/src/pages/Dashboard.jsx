@@ -19,8 +19,11 @@ import { useState } from "react"
 
 // Left panel: joint angle sliders per lab
 function ParamPanel({ lab }) {
-    const joints = ["joint 1", "joint 2", "joint 3"]
-    const [values, setValues] = useState({ "joint 1": 0, "joint 2": 0, "joint 3": 0 })
+    const joints = ["joint 1", "joint 2", "joint 3", "joint 4", "joint 5", "joint 6", "joint 7"]
+    const [values, setValues] = useState({
+        "joint 1": 0, "joint 2": 0, "joint 3": 0,
+        "joint 4": 0, "joint 5": 0, "joint 6": 0, "joint 7": 0
+    })
 
     function handleChange(joint, val) {
         setValues(prev => ({ ...prev, [joint]: Number(val) }))
