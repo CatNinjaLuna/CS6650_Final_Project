@@ -1,8 +1,77 @@
-# React + Vite
+# RoboParam — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite frontend for the RoboParam distributed robot parameter visualization system.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Framework**: React 18 (Vite)
+- **Styling**: CSS variables (no external UI library)
+- **3D rendering**: Three.js / React Three Fiber _(coming soon)_
+- **Transport**: WebSocket _(integration in progress)_
+
+## Getting Started
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+## Project Structure
+
+```
+frontend/
+├── src/
+│   ├── pages/
+│   │   ├── LabRegistry.jsx   # Screen 1 — lab & device registry
+│   │   └── Dashboard.jsx     # Screen 2 — parameter dashboard
+│   ├── App.jsx               # Root component, handles page routing
+│   ├── index.css             # Global styles and CSS variables
+│   └── main.jsx              # Entry point
+└── index.html
+```
+
+## Current State
+
+All UI is built and working with mock data:
+
+| Feature | Status |
+|---------|--------|
+| Lab & device registry (FR-01/02) | ✅ Done |
+| Filter labs by module | ✅ Done |
+| Parameter panel with joint sliders (FR-03) | ✅ Done |
+| Computed results panel | ✅ Mock data |
+| Worker node latency panel | ✅ Mock data |
+| Module coverage matrix (FR-08) | ✅ Mock data |
+| WebSocket integration (FR-05) | 🔲 Pending aggregator |
+| 3D URDF rendering (FR-06) | 🔲 Pending WebSocket |
+
+## WebSocket Integration
+
+Once the aggregator service is ready, replace the mock data in `ResultPanel` inside `Dashboard.jsx` with a live WebSocket connection.
+
+Expected payload format from the aggregator:
+
+```json
+{
+  "deviceId": "arm-1",
+  "module": "kinematics",
+  "jointAngles": [0.1, -0.3, 0.2, -1.5, 0.0, 1.8, 0.4],
+  "endEffector": { "x": 0.41, "y": 0.28, "z": 0.35 },
+  "collision": false,
+  "latency": 14
+}
+```
+
+## CSS Variables
+
+All colors and theme values are defined in `index.css` under `:root`. To change the theme, update the variables there — no need to touch component files.
+
+Key variables:
+- `--bg-primary` — dark header / page background
+- `--bg-card` — white card surfaces
+- `--accent-blue` — module icons, latency values
+- `--accent-green` — selected state, positive results
+- `--accent-red` — collision warnings
