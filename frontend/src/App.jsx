@@ -1,35 +1,31 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState } from "react"
+import LabRegistry from "./pages/LabRegistry"
+import Dashboard from "./pages/Dashboard"
 
-function App() {
-  const [count, setCount] = useState(0)
+// App.jsx
+// Root component controlling high-level app flow:
+// 1. LabRegistry → user selects labs/devices to form a session
+// 2. Dashboard → displays active session (3D view + parameters)
 
-  return (
-    <>
-      <div>
-        <a href="https://vitejs.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+
+// Note:
+// - Routing is handled via local React state (no router library)
+// - No backend integration here; data is passed down as props
+// - selectedLabs represents the current session configuration
+export default function App() {
+    const [page, setPage] = useState("registry")
+    const [selectedLabs, setSelectedLabs] = useState([])
+
+    if (page === "dashboard") {
+        return <Dashboard labs={selectedLabs} onBack={() => setPage("registry")} />
+    }
+
+    return (
+        <LabRegistry
+            onStartSession={(labs) => {
+                setSelectedLabs(labs)
+                setPage("dashboard")
+            }}
+        />
+    )
 }
-
-export default App
