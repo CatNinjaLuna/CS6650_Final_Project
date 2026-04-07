@@ -23,7 +23,7 @@ WebSocket Aggregator
         ↑
     worker3 (this service)
         ↓ REST
-  Isaac Sim @ 192.168.1.3:8211
+  Isaac Sim @ 192.168.1.3:8011
 ```
 
 ## Services
@@ -43,6 +43,14 @@ WebSocket Aggregator
 - **Frontend:** React, Three.js
 - **Cloud:** AWS (SQS, us-east-1)
 
+## Isaac Sim — sim_state.py
+
+`isaac-sim/sim_state.py` is the Script Editor entrypoint for Isaac Sim. Run it each session after pressing Play. It registers the `/roboparam/roboparam/update` POST endpoint and returns:
+
+- `applied_joints` — joint angle confirmation for all 7 Franka Panda joints
+- `end_effector` — world-space position of `/Franka/panda_hand` (`x, y, z`)
+- `collision` — boolean, derived from PhysX contact report
+
 ## Running worker3
 
 ### Prerequisites
@@ -50,7 +58,7 @@ WebSocket Aggregator
 - Java 17+
 - Maven
 - AWS credentials configured (`aws configure`)
-- Isaac Sim running and reachable at `192.168.1.3:8211`
+- Isaac Sim running and reachable at `192.168.1.3:8011`
 
 ### AWS Credentials (AWS Academy)
 
@@ -78,7 +86,7 @@ Edit `worker3/src/main/resources/application.yml`:
 ```yaml
 worker:
   sqs-queue-url: https://sqs.us-east-1.amazonaws.com/826889494728/roboparam-queue
-  isaac-sim-base-url: http://192.168.1.3:8211
+  isaac-sim-base-url: http://192.168.1.3:8011
 ```
 
 ### Build & Run
@@ -108,7 +116,7 @@ Expected worker3 log:
 ```
 INFO  worker3.IsaacSimClient : → Isaac Sim robot=panda-01 joints=[0.1, -0.3, 0.0, -1.5, 0.0, 1.8, 0.7]
 INFO  worker3.IsaacSimClient : ← Isaac Sim status=200 OK
-INFO  worker3.SqsPoller      : Sim result: {"status":"ok","applied_joints":{"panda_joint1":0.1,...},"joint_count":7}
+INFO  worker3.SqsPoller      : Sim result: {"status":"ok","applied_joints":{"panda_joint1":0.1,...},"joint_count":7,"end_effector":{"x":0.41,"y":0.28,"z":0.35},"collision":false}
 ```
 
 ### End-to-End Test Result
@@ -130,5 +138,5 @@ INFO  worker3.SqsPoller      : Sim result: {"status":"ok","applied_joints":{"pan
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/roboparam/roboparam/update` | Send joint angles to Isaac Sim |
+| `POST` | `/roboparam/roboparam/update` | Send joint angles to Isaac Sim, returns joints + end effector + collision |
 | `GET` | `/docs` | Swagger UI (Isaac Sim service) |
