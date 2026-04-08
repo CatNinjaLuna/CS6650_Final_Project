@@ -16,6 +16,7 @@
 //   onBack — callback to return to the Lab Registry
 
 import { useState, useEffect } from "react"
+import RobotViewer from "./RobotViewer"
 
 // Left panel: joint angle sliders per lab
 function ParamPanel({ lab }) {
@@ -229,9 +230,8 @@ export default function Dashboard({ labs, onBack }) {
                     alignItems: "center",
                     justifyContent: "center",
                 }}>
-                    <div style={{ color: "var(--text-muted)", fontSize: "14px" }}>3D viewport — Three.js (coming soon)</div>
+                    <RobotViewer jointAngles={runtimeData?.jointAngles || [0,0,0,0,0,0,0]} />
                 </div>
-
                 {/* Right: results panel */}
                 <div style={{
                     width: "220px",
