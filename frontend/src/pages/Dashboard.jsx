@@ -39,16 +39,35 @@ function ParamPanel({ lab }) {
                 <div key={joint} style={{ marginBottom: "10px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text-on-card-secondary)", marginBottom: "2px" }}>
                         <span>{joint}</span>
-                        <span>{values[joint]}°</span>
                     </div>
-                    <input
-                        type="range"
-                        min={-180}
-                        max={180}
-                        value={values[joint]}
-                        onChange={e => handleChange(joint, e.target.value)}
-                        style={{ width: "100%" }}
-                    />
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <input
+                            type="range"
+                            min={-180}
+                            max={180}
+                            value={values[joint]}
+                            onChange={e => handleChange(joint, e.target.value)}
+                            style={{ flex: 1 }}
+                        />
+                        <input
+                            type="number"
+                            min={-180}
+                            max={180}
+                            value={values[joint]}
+                            onChange={e => handleChange(joint, e.target.value)}
+                            style={{
+                                width: "52px",
+                                fontSize: "11px",
+                                padding: "2px 4px",
+                                borderRadius: "4px",
+                                border: "1px solid var(--border)",
+                                background: "var(--bg-page)",
+                                color: "var(--text-on-card)",
+                                textAlign: "right",
+                            }}
+                        />
+                        <span style={{ fontSize: "11px", color: "var(--text-on-card-secondary)" }}>°</span>
+                    </div>
                 </div>
             ))}
         </div>
