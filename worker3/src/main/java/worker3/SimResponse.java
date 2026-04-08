@@ -13,4 +13,15 @@ public class SimResponse {
 
   @JsonProperty("joint_count")
   public int jointCount;
+
+  @JsonProperty("end_effector")
+  public EndEffector endEffector;
+
+  public boolean collision;
+
+  public static class EndEffector {
+    public double x;
+    public double y;
+    public double z;
+  }
 }

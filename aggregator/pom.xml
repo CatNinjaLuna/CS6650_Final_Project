@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
@@ -13,51 +12,32 @@
   </parent>
 
   <groupId>com.snapgrid</groupId>
-  <artifactId>worker3</artifactId>
+  <artifactId>aggregator</artifactId>
   <version>0.0.1-SNAPSHOT</version>
-  <name>worker3</name>
-  <description>SnapGrid SQS worker — polls joint-angle messages and forwards to Isaac Sim</description>
+  <name>aggregator</name>
+  <description>SnapGrid WebSocket aggregator — fans out Isaac Sim results to frontend</description>
 
   <properties>
     <java.version>17</java.version>
-    <aws.sdk.version>2.25.40</aws.sdk.version>
   </properties>
 
-  <dependencyManagement>
-    <dependencies>
-      <dependency>
-        <groupId>software.amazon.awssdk</groupId>
-        <artifactId>bom</artifactId>
-        <version>${aws.sdk.version}</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
-    </dependencies>
-  </dependencyManagement>
-
   <dependencies>
-    <!-- Spring Web (RestTemplate + embedded Tomcat) -->
+    <!-- WebSocket support: handles frontend connections on /ws/results -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
+      <artifactId>spring-boot-starter-websocket</artifactId>
     </dependency>
 
-    <!-- Redis (pub/sub to aggregator) -->
+    <!-- Redis: pub/sub subscriber on roboparam:results channel -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-redis</artifactId>
     </dependency>
 
-    <!-- AWS SQS -->
+    <!-- Jackson: deserializes SimResult JSON from Redis messages -->
     <dependency>
-      <groupId>software.amazon.awssdk</groupId>
-      <artifactId>sqs</artifactId>
-    </dependency>
-
-    <!-- URL connection client — required by SDK v2 on Java 17+ -->
-    <dependency>
-      <groupId>software.amazon.awssdk</groupId>
-      <artifactId>url-connection-client</artifactId>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
     </dependency>
 
     <dependency>
