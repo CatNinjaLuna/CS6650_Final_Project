@@ -18,7 +18,7 @@ SnapGrid is a distributed system for real-time robot parameter visualization and
 Frontend (React + Three.js)
         ↑ WebSocket
 WebSocket Aggregator
-        ↑
+        ↑ Redis pub/sub
    AWS SQS Queue
         ↑
     worker3 (this service)
@@ -30,15 +30,16 @@ WebSocket Aggregator
 
 | Service | Description | Status |
 |---|---|---|
-| `worker3` | Spring Boot SQS worker — polls joint angle messages, calls Isaac Sim REST endpoint | ✅ Running |
+| `worker3` | Spring Boot SQS worker — polls joint angle messages, calls Isaac Sim REST endpoint, publishes results to Redis | ✅ Running |
 | Isaac Sim | NVIDIA Isaac Sim running Franka Panda arm (Windows, NVIDIA GPU required) | ✅ Running |
-| WebSocket Aggregator | Streams simulation results to the frontend | 🔲 In progress |
+| WebSocket Aggregator | Subscribes to Redis, fans out simulation results to frontend over WebSocket | ✅ Running |
 | Frontend | React + Three.js 3D URDF visualization | 🔲 In progress |
 
 ## Stack
 
 - **Backend:** Java 17, Spring Boot 3.2, AWS SDK v2
 - **Queue:** AWS SQS (long-poll, Standard queue)
+- **Pub/Sub:** Redis 7 (Docker)
 - **Simulation:** NVIDIA Isaac Sim 5.x (Windows, RTX 5090)
 - **Frontend:** React, Three.js
 - **Cloud:** AWS (SQS, us-east-1)
@@ -116,12 +117,21 @@ Expected worker3 log:
 ```
 INFO  worker3.IsaacSimClient : → Isaac Sim robot=panda-01 joints=[0.1, -0.3, 0.0, -1.5, 0.0, 1.8, 0.7]
 INFO  worker3.IsaacSimClient : ← Isaac Sim status=200 OK
-INFO  worker3.SqsPoller      : Sim result: {"status":"ok","applied_joints":{"panda_joint1":0.1,...},"joint_count":7,"end_effector":{"x":0.41,"y":0.28,"z":0.35},"collision":false}
+INFO  worker3.SqsPoller      : Published to Redis: deviceId=arm-1 latency=50ms
 ```
 
-### End-to-End Test Result
+Expected aggregator log:
+```
+Redis received: {"deviceId":"arm-1","module":"kinematics","jointAngles":[...],"endEffector":{"x":0.1071,"y":0.0005,"z":0.9277},"collision":false,"latency":50}
+```
 
-![worker3 end-to-end test](docs/screenshots/worker3_e2e_test.png)
+## End-to-End Test Results
+
+Full pipeline verified: **SQS → worker3 → Isaac Sim → Redis → aggregator → WebSocket**
+
+![worker3 publishes to Redis](docs/screenshots/worker3-redis-publish.png)
+![aggregator receives from Redis](docs/screenshots/aggregator-redis-receive.png)
+![Isaac Sim Franka scene](docs/screenshots/isaac-sim-franka-scene.png)
 
 ## SQS Queue
 

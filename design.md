@@ -22,8 +22,9 @@ Multiple students work together on the same LEGO assembly task:
 2. OpenVLA processes the instruction and outputs 7-DOF joint angle commands
 3. Commands are enqueued to SQS and picked up by worker3
 4. worker3 forwards the commands to Isaac Sim — the Panda arm executes the motion
-5. The simulation state is streamed via WebSocket to **all connected students** simultaneously
-6. Every student's browser shows the arm moving in real time in 3D
+5. The simulation state is published to Redis and picked up by the aggregator
+6. The aggregator streams the result via WebSocket to **all connected students** simultaneously
+7. Every student's browser shows the arm moving in real time in 3D
 
 ---
 
@@ -38,15 +39,14 @@ Multiple students work together on the same LEGO assembly task:
                 │ WebSocket        │ WebSocket         │ WebSocket
 ┌───────────────▼─────────────────▼──────────────────▼────────────────┐
 │                       AGGREGATOR LAYER                               │
-│              WebSocket Aggregator (Spring Boot, port 8080)           │
-│         Fan-out: broadcasts sim state to all connected clients       │
-│         Lab Registry · Device Registry · Session Management          │
+│         WebSocket Aggregator (Spring Boot, port 8082) ✅ Verified    │
+│         Subscribes to Redis · fans out to all connected clients      │
 └────────────────────────────┬─────────────────────────────────────────┘
-                             │ HTTP POST (sim result)
+                             │ Redis pub/sub (roboparam:results)
 ┌────────────────────────────▼─────────────────────────────────────────┐
 │                        WORKER LAYER                                  │
-│        worker3 (Spring Boot, port 8083) — ✅ Verified working        │
-│        SQS poll → Isaac Sim REST → POST result to aggregator         │
+│        worker3 (Spring Boot, port 8083) ✅ Verified                  │
+│        SQS poll → Isaac Sim REST → publish to Redis                  │
 │        Stateless · Horizontally scalable                             │
 └───────────┬────────────────────────────────────────┬─────────────────┘
             │ SQS consume                             │ REST POST
@@ -54,8 +54,8 @@ Multiple students work together on the same LEGO assembly task:
 │      AWS SQS             │          │   NVIDIA Isaac Sim 5.x          │
 │   roboparam-queue        │          │   192.168.1.3:8011              │
 │   us-east-1 · Standard   │          │   Franka Panda · LEGO scene     │
-│   ✅ Verified working     │          │   Windows · RTX 5090            │
-└───────────▲──────────────┘          │   ✅ Verified working            │
+│   ✅ Verified             │          │   Windows · RTX 5090            │
+└───────────▲──────────────┘          │   ✅ Verified                    │
             │ SQS publish             └─────────────────────────────────┘
 ┌───────────┴──────────────────────────────────────────────────────────┐
 │                       VLA INFERENCE LAYER                            │
@@ -71,8 +71,8 @@ Multiple students work together on the same LEGO assembly task:
 |---|---|---|
 | **OpenVLA** | Pretrained VLA model; takes language instruction + camera obs; outputs joint angles | 🔲 Integration planned |
 | **Isaac Sim** | Runs Franka Panda in LEGO assembly scene; accepts joint commands via REST | ✅ Running @ 192.168.1.3:8011 |
-| **worker3** | Polls SQS; forwards joint angles to Isaac Sim; pushes result to aggregator | ✅ Running @ port 8083 |
-| **WebSocket Aggregator** | Fans out sim state to all connected student browsers; holds lab/device registry | 🔲 In progress |
+| **worker3** | Polls SQS; forwards joint angles to Isaac Sim; publishes result to Redis | ✅ Running @ port 8083 |
+| **WebSocket Aggregator** | Subscribes to Redis; fans out sim state to all connected student browsers | ✅ Running @ port 8082 |
 | **Frontend** | React + Three.js 3D URDF visualization; multiple concurrent student sessions | 🔲 In progress |
 
 ---
@@ -100,12 +100,6 @@ Multiple students work together on the same LEGO assembly task:
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `robotId` | `string` | Unique robot instance identifier |
-| `jointAngles` | `double[7]` | 7-DOF Franka Panda joint positions (radians) |
-| `timestamp` | `long` | Unix ms timestamp of the command |
-
 ### 4.3 Isaac Sim REST Endpoint
 
 **`POST /roboparam/roboparam/update`**
@@ -122,51 +116,27 @@ Response:
 {
   "status": "ok",
   "applied_joints": {
-    "panda_joint1": 0.1,
-    "panda_joint2": -0.3,
-    "panda_joint3": 0.0,
-    "panda_joint4": -1.5,
-    "panda_joint5": 0.0,
-    "panda_joint6": 1.8,
-    "panda_joint7": 0.7
+    "panda_joint1": 0.1, "panda_joint2": -0.3, "panda_joint3": 0.0,
+    "panda_joint4": -1.5, "panda_joint5": 0.0, "panda_joint6": 1.8, "panda_joint7": 0.7
   },
-  "joint_count": 7
+  "joint_count": 7,
+  "end_effector": { "x": 0.1071, "y": 0.0005, "z": 0.9277 },
+  "collision": false
 }
 ```
 
-### 4.4 worker3 → Aggregator Push
+### 4.4 WebSocket Payload Schema
 
-**`POST /aggregate/update`** (aggregator REST endpoint)
-
-```json
-{
-  "robotId": "panda-01",
-  "appliedJoints": { "panda_joint1": 0.1, "panda_joint2": -0.3, "...": "..." },
-  "jointCount": 7,
-  "timestamp": 1712345678950
-}
-```
-
-### 4.5 WebSocket Events
-
-**Server → All Clients** (aggregator fans out to every connected student)
+Frontend connects to `ws://localhost:8082/ws/results` and receives:
 
 ```json
 {
-  "event": "sim_update",
-  "robotId": "panda-01",
-  "appliedJoints": { "panda_joint1": 0.1, "panda_joint2": -0.3, "...": "..." },
-  "timestamp": 1712345678950
-}
-```
-
-**Client → Server** (student sends a language instruction)
-
-```json
-{
-  "event": "instruction",
-  "studentId": "student-a",
-  "instruction": "place the 2x4 red brick on top of the blue base"
+  "deviceId":    "arm-1",
+  "module":      "kinematics",
+  "jointAngles": [0.1, -0.3, 0.2, -1.5, 0.0, 1.8, 0.4],
+  "endEffector": { "x": 0.1071, "y": 0.0005, "z": 0.9277 },
+  "collision":   false,
+  "latency":     50
 }
 ```
 
@@ -197,12 +167,10 @@ Isaac Sim camera observation (image)
         ↓
    Isaac Sim @ 8011
         ↓
-  Sim state → Aggregator → All student browsers
+  Redis (roboparam:results)
+        ↓
+  Aggregator → All student browsers (WebSocket)
 ```
-
-### Sim-to-Real Validation
-- Policies are evaluated by comparing sim joint trajectories against reference LEGO assembly trajectories
-- Isaac Sim's rigid body + contact dynamics minimizes the sim-to-real gap for contact-rich assembly tasks
 
 ---
 
@@ -211,8 +179,8 @@ Isaac Sim camera observation (image)
 ### 6.1 Scalability
 - **worker3 is stateless** — multiple instances can poll the same SQS queue concurrently; visibility timeout prevents duplicate processing
 - **SQS as backpressure** — absorbs joint command bursts from VLA inference or multiple students without overwhelming Isaac Sim
+- **Redis pub/sub decoupling** — worker3 and aggregator are fully decoupled; either can be restarted independently
 - **Aggregator fan-out** — a single sim state update is broadcast to N connected student browsers; O(1) work per update regardless of student count
-- **Horizontal scaling** — aggregator instances scale behind a load balancer with WebSocket session affinity
 
 ### 6.2 Fault Tolerance
 - **At-least-once delivery** — worker3 deletes SQS messages only after successful Isaac Sim response; failures retry after 30s visibility timeout ✅ verified
@@ -226,7 +194,7 @@ Isaac Sim camera observation (image)
 
 ### 6.4 Latency
 - SQS long-poll (`waitTimeSeconds=20`) eliminates busy-waiting
-- Target end-to-end latency: **< 200ms** from SQS enqueue to WebSocket push
+- Measured end-to-end latency: **~50ms** (SQS receive → Isaac Sim response → Redis publish)
 - VLA inference latency (~100-500ms) runs asynchronously and is excluded from the real-time visualization budget
 
 ---
@@ -241,6 +209,12 @@ Isaac Sim camera observation (image)
 | SQS message ingestion | ✅ Message received and deserialized correctly |
 | Isaac Sim reachability | ✅ Mac → Windows @ 192.168.1.3:8011 verified |
 | Isaac Sim joint application | ✅ All 7 joints applied with correct values |
-| Full pipeline | ✅ SQS → worker3 → Isaac Sim → 200 OK → correct joint values |
+| Isaac Sim end effector | ✅ `endEffector` x/y/z returned in response |
+| worker3 → Redis publish | ✅ Result published to `roboparam:results` |
+| Aggregator Redis subscribe | ✅ Full payload received by aggregator |
+| Aggregator → WebSocket | ✅ Payload pushed to connected clients |
+| **Full pipeline** | ✅ **SQS → worker3 → Isaac Sim → Redis → aggregator → WebSocket** |
 
-![worker3 end-to-end test](docs/screenshots/worker3_e2e_test.png)
+![worker3 publishes to Redis](docs/screenshots/worker3-redis-publish.png)
+![aggregator receives from Redis](docs/screenshots/aggregator-redis-receive.png)
+![Isaac Sim Franka scene](docs/screenshots/isaac-sim-franka-scene.png)
