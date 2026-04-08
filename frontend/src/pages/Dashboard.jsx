@@ -160,8 +160,7 @@ export default function Dashboard({ labs, onBack }) {
     // Receives real-time simulation results from Isaac Sim via Redis → aggregator
     // Falls back to mock data in ResultPanel if WebSocket is unavailable
     useEffect(() => {
-        const ws = new WebSocket("ws://localhost:8082/ws/results")
-
+        const ws = new WebSocket("wss://prodromal-elana-dedicatedly.ngrok-free.dev/ws/results")
         ws.onopen = () => console.log("WebSocket connected")
 
         ws.onmessage = (event) => {
