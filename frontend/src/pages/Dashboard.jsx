@@ -7,15 +7,15 @@
 // - Right panel: computed results, worker node latency, module coverage matrix
 //
 // Current implementation notes:
-// - ResultPanel and CoverageMatrix use mock data
+// - ResultPanel uses live WebSocket data when available, falls back to mock
+// - CoverageMatrix uses mock latency values
 // - Current parameter controls are lab-level for simplicity
-// - TODO: replace with live WebSocket data from the aggregator service
 //
 // Props:
 //   labs   — array of selected lab objects passed from App
 //   onBack — callback to return to the Lab Registry
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 // Left panel: joint angle sliders per lab
 function ParamPanel({ lab }) {
@@ -55,9 +55,15 @@ function ParamPanel({ lab }) {
 }
 
 // Right panel: computed results + worker latency
-// TODO: replace mock data with live WebSocket payload from aggregator
-function ResultPanel() {
-    const results = [
+// Uses live WebSocket data when available, falls back to mock
+function ResultPanel({ data }) {
+    const results = data ? [
+        { label: "EE x", value: `${data.endEffector?.x}m` },
+        { label: "EE y", value: `${data.endEffector?.y}m` },
+        { label: "EE z", value: `${data.endEffector?.z}m` },
+        { label: "collision", value: String(data.collision), warn: data.collision },
+        { label: "latency", value: `${data.latency}ms` },
+    ] : [
         { label: "EE x", value: "0.41m" },
         { label: "EE y", value: "0.28m" },
         { label: "EE z", value: "0.35m" },
@@ -147,6 +153,31 @@ function CoverageMatrix({ labs }) {
 }
 
 export default function Dashboard({ labs, onBack }) {
+    const [runtimeData, setRuntimeData] = useState(null)
+
+    // Connect to WebSocket aggregator on mount
+    // Receives real-time simulation results from Isaac Sim via Redis → aggregator
+    // Falls back to mock data in ResultPanel if WebSocket is unavailable
+    useEffect(() => {
+        const ws = new WebSocket("ws://localhost:8082/ws/results")
+
+        ws.onopen = () => console.log("WebSocket connected")
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data)
+                setRuntimeData(data)
+            } catch (e) {
+                console.error("Failed to parse WebSocket message:", e)
+            }
+        }
+
+        ws.onerror = (err) => console.error("WebSocket error:", err)
+        ws.onclose = () => console.log("WebSocket disconnected")
+
+        return () => ws.close()
+    }, [])
+
     return (
         <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg-primary)", color: "var(--text-primary)", fontFamily: "var(--font)" }}>
 
@@ -165,14 +196,14 @@ export default function Dashboard({ labs, onBack }) {
           RoboParam — parameter dashboard
         </span>
                 <span style={{ fontSize: "13px", color: "var(--text-secondary)", marginLeft: "auto", fontWeight: "500" }}>
-          {labs.map(l => l.name).join(" · ")} · {labs.reduce((sum, l) => sum + l.workers, 0)} workers
+          {labs.map(l => l.name).join(" · ")} · {labs.reduce((sum, l) => sum + (l.devices?.length || 0), 0)} devices
         </span>
             </div>
 
-            {/* main body for three coloumn parts*/}
+            {/* Three column layout */}
             <div style={{ display: "flex", flex: 1, overflow: "hidden", padding: "16px", gap: "16px" }}>
 
-                {/* Left: paras panel */}
+                {/* Left: parameter panel */}
                 <div style={{
                     width: "240px",
                     background: "var(--bg-card)",
@@ -184,11 +215,11 @@ export default function Dashboard({ labs, onBack }) {
                 }}>
                     <div style={{ fontSize: "12px", fontWeight: "500", color: "var(--text-on-card-secondary)", marginBottom: "16px", letterSpacing: "0.05em" }}>PARAMETERS</div>
                     {labs.map(lab => (
-                        <ParamPanel key={lab.id} lab={lab} />
+                        <ParamPanel key={lab.labId} lab={lab} />
                     ))}
                 </div>
 
-                {/* middle：3D viewport */}
+                {/* Center: 3D viewport */}
                 <div style={{
                     flex: 1,
                     background: "var(--bg-secondary)",
@@ -201,7 +232,7 @@ export default function Dashboard({ labs, onBack }) {
                     <div style={{ color: "var(--text-muted)", fontSize: "14px" }}>3D viewport — Three.js (coming soon)</div>
                 </div>
 
-                {/* right：result panel */}
+                {/* Right: results panel */}
                 <div style={{
                     width: "220px",
                     background: "var(--bg-card)",
@@ -212,7 +243,7 @@ export default function Dashboard({ labs, onBack }) {
                     color: "var(--text-on-card)",
                 }}>
                     <div style={{ fontSize: "12px", fontWeight: "500", color: "var(--text-on-card-secondary)", marginBottom: "16px", letterSpacing: "0.05em" }}>RESULTS</div>
-                    <ResultPanel />
+                    <ResultPanel data={runtimeData} />
                     <CoverageMatrix labs={labs} />
                 </div>
 
