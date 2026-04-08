@@ -97,15 +97,18 @@ function ResultPanel() {
 // TODO: replace mock latency values with live data from aggregator
 function CoverageMatrix({ labs }) {
     const modules = ["kin", "col", "tra", "sen"]
-    const rows = labs.map(lab => ({
-        name: lab.name,
-        coverage: {
-            kin: "14ms",
-            col: "19ms",
-            tra: "31ms",
-            sen: lab.modules.includes("sen") ? "12ms" : null,
+    const rows = labs.map(lab => {
+        const labModules = lab.devices?.flatMap(d => d.modules || []) || []
+        return {
+            name: lab.name,
+            coverage: {
+                kin: labModules.includes("kin") ? "14ms" : null,
+                col: labModules.includes("col") ? "19ms" : null,
+                tra: labModules.includes("tra") ? "31ms" : null,
+                sen: labModules.includes("sen") ? "12ms" : null,
+            }
         }
-    }))
+    })
 
     return (
         <div style={{ marginTop: "20px" }}>
