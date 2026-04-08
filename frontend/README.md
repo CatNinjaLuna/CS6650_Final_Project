@@ -38,8 +38,8 @@ frontend/
 All UI is built and working with mock data:
 
 | Feature | Status |
-|---------|----|
-| Lab & device registry (FR-01/02) | ✅  Connected to registration service (port 8084) |
+|---------|--------|
+| Lab & device registry (FR-01/02) | ✅ Connected to registration service (port 8084) |
 | Filter labs by module | ✅ Done |
 | Parameter panel with joint sliders (FR-03) | ✅ Done |
 | Computed results panel | ✅ Mock data |
@@ -47,6 +47,25 @@ All UI is built and working with mock data:
 | Module coverage matrix (FR-08) | ✅ Mock data |
 | WebSocket integration (FR-05) | 🔲 Pending aggregator |
 | 3D URDF rendering (FR-06) | 🔲 Pending WebSocket |
+
+## Backend Dependencies
+
+### Registration Service (port 8084)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/labs/full` | Get all labs with their devices — used by Screen 1 |
+| `GET` | `/labs` | Get all labs (no devices) |
+| `POST` | `/labs` | Register a new lab |
+| `POST` | `/labs/{labId}/devices` | Register a device under a lab |
+| `GET` | `/labs/{labId}/devices` | Get all devices in a lab |
+| `GET` | `/labs/{labId}/devices/{deviceId}` | Get a single device |
+
+Start the service: `cd registration-service && mvn spring-boot:run`
+
+### WebSocket Aggregator (port TBD)
+
+Streams real-time simulation results to the frontend. See WebSocket Integration section below.
 
 ## WebSocket Integration
 
