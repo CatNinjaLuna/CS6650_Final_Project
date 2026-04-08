@@ -60,9 +60,14 @@ public class SqsPoller {
         // Convert appliedJoints map (panda_joint1..7) to sorted list [j1, j2, ...]
         List<Double> jointList = new ArrayList<>(new TreeMap<>(result.appliedJoints).values());
 
+        // Resolve deviceId: prefer new deviceId field, fall back to robotId
+        String deviceId = payload.deviceId != null ? payload.deviceId
+            : payload.robotId  != null ? payload.robotId
+                : "arm-1";
+
         // Build WebSocket payload and publish to aggregator via Redis
         Map<String, Object> wsPayload = Map.of(
-            "deviceId",    payload.robotId != null ? payload.robotId : "arm-1",
+            "deviceId",    deviceId,
             "module",      "kinematics",
             "jointAngles", jointList,
             "endEffector", result.endEffector != null ? result.endEffector : Map.of(),
@@ -70,7 +75,7 @@ public class SqsPoller {
             "latency",     latency
         );
         redis.convertAndSend(REDIS_CHANNEL, mapper.writeValueAsString(wsPayload));
-        log.info("Published to Redis: deviceId={} latency={}ms", wsPayload.get("deviceId"), latency);
+        log.info("Published to Redis: deviceId={} latency={}ms", deviceId, latency);
 
         sqs.deleteMessage(DeleteMessageRequest.builder()
             .queueUrl(queueUrl)
