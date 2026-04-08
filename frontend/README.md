@@ -38,8 +38,8 @@ frontend/
 All UI is built and working with mock data:
 
 | Feature | Status |
-|---------|--------|
-| Lab & device registry (FR-01/02) | ✅ Done |
+|---------|----|
+| Lab & device registry (FR-01/02) | ✅  Connected to registration service (port 8084) |
 | Filter labs by module | ✅ Done |
 | Parameter panel with joint sliders (FR-03) | ✅ Done |
 | Computed results panel | ✅ Mock data |
