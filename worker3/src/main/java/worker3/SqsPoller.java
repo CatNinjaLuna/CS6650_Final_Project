@@ -18,6 +18,7 @@ public class SqsPoller {
 
   private final SqsClient sqs;
   private final IsaacSimClient isaacSim;
+  private final RegistrationServiceClient registrationServiceClient;
   private final ObjectMapper mapper = new ObjectMapper();
 
   @Value("${worker.sqs-queue-url}")
@@ -29,34 +30,72 @@ public class SqsPoller {
   @Value("${worker.wait-time-seconds:20}")
   private int waitTime;
 
-  public SqsPoller(SqsClient sqs, IsaacSimClient isaacSim) {
+  public SqsPoller(
+      SqsClient sqs,
+      IsaacSimClient isaacSim,
+      RegistrationServiceClient registrationServiceClient
+  ) {
     this.sqs = sqs;
     this.isaacSim = isaacSim;
+    this.registrationServiceClient = registrationServiceClient;
   }
 
   @Scheduled(fixedDelay = 500)
   public void poll() {
-    List<Message> msgs = sqs.receiveMessage(ReceiveMessageRequest.builder()
-        .queueUrl(queueUrl)
-        .maxNumberOfMessages(maxMessages)
-        .waitTimeSeconds(waitTime)
-        .build()).messages();
+    List<Message> msgs = sqs.receiveMessage(
+        ReceiveMessageRequest.builder()
+            .queueUrl(queueUrl)
+            .maxNumberOfMessages(maxMessages)
+            .waitTimeSeconds(waitTime)
+            .build()
+    ).messages();
 
     for (Message m : msgs) {
       try {
         JointAngleMessage payload = mapper.readValue(m.body(), JointAngleMessage.class);
+
+        String effectiveDeviceId =
+            (payload.deviceId != null && !payload.deviceId.isBlank())
+                ? payload.deviceId
+                : payload.robotId;
+
+        if (payload.labId == null || payload.labId.isBlank()) {
+          log.warn("Skipping msg id={} because labId is missing", m.messageId());
+          continue;
+        }
+
+        if (effectiveDeviceId == null || effectiveDeviceId.isBlank()) {
+          log.warn("Skipping msg id={} because deviceId/robotId is missing", m.messageId());
+          continue;
+        }
+
+        if (!registrationServiceClient.deviceExists(payload.labId, effectiveDeviceId)) {
+          log.warn(
+              "Skipping msg id={} because device {} does not exist in lab {}",
+              m.messageId(),
+              effectiveDeviceId,
+              payload.labId
+          );
+          continue;
+        }
+
+        // normalize for downstream usage
+        payload.deviceId = effectiveDeviceId;
+
         SimResponse result = isaacSim.sendJointAngles(payload);
 
         // TODO: forward result to WebSocket aggregator
         log.info("Sim result: {}", mapper.writeValueAsString(result));
 
-        sqs.deleteMessage(DeleteMessageRequest.builder()
-            .queueUrl(queueUrl)
-            .receiptHandle(m.receiptHandle())
-            .build());
+        sqs.deleteMessage(
+            DeleteMessageRequest.builder()
+                .queueUrl(queueUrl)
+                .receiptHandle(m.receiptHandle())
+                .build()
+        );
 
       } catch (Exception e) {
-        log.error("Failed msg id={}: {}", m.messageId(), e.getMessage());
+        log.error("Failed msg id={}: {}", m.messageId(), e.getMessage(), e);
       }
     }
   }

@@ -19,13 +19,15 @@ public class IsaacSimClient {
   private final RestTemplate restTemplate;
   private final String baseUrl;
 
-  public IsaacSimClient(RestTemplate restTemplate,
-      @Value("${worker.isaac-sim-base-url}") String baseUrl) {
+  public IsaacSimClient(
+      RestTemplate restTemplate,
+      @Value("${worker.isaac-sim-base-url}") String baseUrl
+  ) {
     this.restTemplate = restTemplate;
     this.baseUrl = baseUrl;
   }
 
-  // Inner class to match Isaac Sim's expected field name "joint_angles"
+  // match Isaac Sim expected field name: "joint_angles"
   static class IsaacSimRequest {
     @JsonProperty("joint_angles")
     public List<Double> jointAngles;
@@ -37,14 +39,20 @@ public class IsaacSimClient {
 
   public SimResponse sendJointAngles(JointAngleMessage msg) {
     String url = baseUrl + UPDATE_PATH;
+
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
 
     IsaacSimRequest request = new IsaacSimRequest(msg.jointAngles);
 
-    log.info("→ Isaac Sim robot={} joints={}", msg.robotId, msg.jointAngles);
+    String effectiveDeviceId =
+        (msg.deviceId != null && !msg.deviceId.isBlank()) ? msg.deviceId : msg.robotId;
+
+    log.info("→ Isaac Sim device={} joints={}", effectiveDeviceId, msg.jointAngles);
+
     ResponseEntity<SimResponse> resp =
         restTemplate.postForEntity(url, new HttpEntity<>(request, headers), SimResponse.class);
+
     log.info("← Isaac Sim status={}", resp.getStatusCode());
     return resp.getBody();
   }
