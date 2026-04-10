@@ -6,8 +6,8 @@ React + Vite frontend for the RoboParam distributed robot parameter visualizatio
 
 - **Framework**: React 18 (Vite)
 - **Styling**: CSS variables (no external UI library)
-- **3D rendering**: Three.js / React Three Fiber _(coming soon)_
-- **Transport**: WebSocket _(integration in progress)_
+- **3D rendering**: Three.js / React Three Fiber — Franka Panda GLB meshes
+- **Transport**: WebSocket — connected to aggregator via ngrok
 
 ## Getting Started
 
@@ -19,14 +19,27 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173) in your browser.
 
+> **Note:** The `.glb` files are tracked with Git LFS. On a new machine, run:
+> ```bash
+> brew install git-lfs
+> git lfs install
+> git lfs pull
+> ```
+
 ## Project Structure
 
 ```
 frontend/
+├── public/
+│   └── panda/              # Franka Panda GLB mesh files (Git LFS)
+│       ├── link0.glb ~ link7.glb
+│       ├── hand.glb
+│       └── finger.glb
 ├── src/
 │   ├── pages/
 │   │   ├── LabRegistry.jsx   # Screen 1 — lab & device registry
-│   │   └── Dashboard.jsx     # Screen 2 — parameter dashboard
+│   │   ├── Dashboard.jsx     # Screen 2 — parameter dashboard
+│   │   └── RobotViewer.jsx   # Three.js 3D arm component
 │   ├── App.jsx               # Root component, handles page routing
 │   ├── index.css             # Global styles and CSS variables
 │   └── main.jsx              # Entry point
@@ -35,18 +48,16 @@ frontend/
 
 ## Current State
 
-All UI is built and working with mock data:
-
 | Feature | Status |
 |---------|--------|
 | Lab & device registry (FR-01/02) | ✅ Connected to registration service (port 8084) |
 | Filter labs by module | ✅ Done |
-| Parameter panel with joint sliders (FR-03) | ✅ Done |
-| Computed results panel | ✅ Mock data |
+| Parameter panel with 7-joint sliders (FR-03) | ✅ Done — slider + number input |
+| Computed results panel | ✅ Live WebSocket data, mock fallback |
 | Worker node latency panel | ✅ Mock data |
 | Module coverage matrix (FR-08) | ✅ Mock data |
-| WebSocket integration (FR-05) | 🔲 Pending aggregator |
-| 3D URDF rendering (FR-06) | 🔲 Pending WebSocket |
+| WebSocket integration (FR-05) | ✅ Connected to aggregator via ngrok |
+| 3D Franka Panda rendering (FR-06) | ✅ GLB meshes, joint angles wired to WebSocket |
 
 ## Backend Dependencies
 
@@ -63,15 +74,20 @@ All UI is built and working with mock data:
 
 Start the service: `cd registration-service && mvn spring-boot:run`
 
-### WebSocket Aggregator (port TBD)
+### WebSocket Aggregator (port 8082)
 
-Streams real-time simulation results to the frontend. See WebSocket Integration section below.
+Streams real-time simulation results to the frontend via Redis pub/sub.
 
-## WebSocket Integration
+Current public endpoint (ngrok):
+```
+wss://prodromal-elana-dedicatedly.ngrok-free.dev/ws/results
+```
 
-Once the aggregator service is ready, replace the mock data in `ResultPanel` inside `Dashboard.jsx` with a live WebSocket connection.
+To run locally: `cd aggregator && mvn spring-boot:run`
 
-Expected payload format from the aggregator:
+## WebSocket Payload
+
+Frontend connects to the aggregator WebSocket and receives:
 
 ```json
 {
@@ -83,6 +99,11 @@ Expected payload format from the aggregator:
   "latency": 14
 }
 ```
+
+- `jointAngles` — drives the 3D arm joint rotations in real time
+- `endEffector` — displayed in the results panel
+- `collision` — shown as a red warning when true
+- `latency` — displayed in the results panel
 
 ## CSS Variables
 
