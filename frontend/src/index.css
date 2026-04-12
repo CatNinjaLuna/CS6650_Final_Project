@@ -1,0 +1,33 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #0f1b2d;
+  --bg-secondary: #1a2744;
+  --bg-card: #ffffff;
+  --bg-card-selected: #f0f0f0;
+  --bg-page: #f4f6f9;
+  --border: #2e4066;
+
+  --text-primary: #e8edf5;
+  --text-secondary: #8fa3c0;
+  --text-muted: #556880;
+  --text-on-card: #1a2744;
+  --text-on-card-secondary: #556880;
+
+  --accent-blue: #4a9eff;
+  --accent-green: #4ade80;
+  --accent-red: #f87171;
+  --accent-yellow: #fbbf24;
+
+  --font: sans-serif;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font);
+}
