@@ -16,6 +16,7 @@ worker:
   max-messages: 5
   wait-time-seconds: 20
   aws-region: us-east-1
+  registration-service-base-url: http://localhost:8084
 
 logging:
   level:
