@@ -2,40 +2,37 @@
 // Screen 2 — parameter dashboard.
 //
 // Responsibilities:
-// - Left panel: parameter sliders for each selected lab (mock version)
-// - Center: 3D viewport placeholder (Three.js coming soon)
+// - Left panel: parameter sliders for each selected lab
+// - Center: 3D viewport (React Three Fiber + GLB meshes)
 // - Right panel: computed results, worker node latency, module coverage matrix
 //
-// Current implementation notes:
-// - ResultPanel uses live WebSocket data when available, falls back to mock
-// - CoverageMatrix uses mock latency values
-// - Current parameter controls are lab-level for simplicity
+// Data flow:
+// - manualAngles (degrees) lives here in Dashboard state
+// - ParamPanel reads and writes manualAngles via props
+// - RobotViewer receives angles in radians (converted here)
+// - If WebSocket is live, runtimeData.jointAngles takes priority over manualAngles
+// - Action dropdown sends { action } payload to backend via WebSocket
 //
 // Props:
 //   labs   — array of selected lab objects passed from App
 //   onBack — callback to return to the Lab Registry
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import RobotViewer from "./RobotViewer"
 
-// Left panel: joint angle sliders per lab
-function ParamPanel({ lab }) {
-    const joints = ["joint 1", "joint 2", "joint 3", "joint 4", "joint 5", "joint 6", "joint 7"]
-    const [values, setValues] = useState({
-        "joint 1": 0, "joint 2": 0, "joint 3": 0,
-        "joint 4": 0, "joint 5": 0, "joint 6": 0, "joint 7": 0
-    })
+const DEG_TO_RAD = Math.PI / 180
 
-    function handleChange(joint, val) {
-        setValues(prev => ({ ...prev, [joint]: Number(val) }))
-    }
+// Left panel: joint angle sliders per lab
+// Fully controlled — values and onChange come from Dashboard
+function ParamPanel({ lab, values, onChange }) {
+    const joints = ["joint 1", "joint 2", "joint 3", "joint 4", "joint 5", "joint 6", "joint 7"]
 
     return (
         <div style={{ marginBottom: "16px" }}>
             <div style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "8px", color: "var(--text-on-card-secondary)" }}>
                 {lab.name}
             </div>
-            {joints.map(joint => (
+            {joints.map((joint, i) => (
                 <div key={joint} style={{ marginBottom: "10px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text-on-card-secondary)", marginBottom: "2px" }}>
                         <span>{joint}</span>
@@ -45,16 +42,16 @@ function ParamPanel({ lab }) {
                             type="range"
                             min={-180}
                             max={180}
-                            value={values[joint]}
-                            onChange={e => handleChange(joint, e.target.value)}
+                            value={values[i]}
+                            onChange={e => onChange(i, Number(e.target.value))}
                             style={{ flex: 1 }}
                         />
                         <input
                             type="number"
                             min={-180}
                             max={180}
-                            value={values[joint]}
-                            onChange={e => handleChange(joint, e.target.value)}
+                            value={values[i]}
+                            onChange={e => onChange(i, Number(e.target.value))}
                             style={{
                                 width: "52px",
                                 fontSize: "11px",
@@ -120,7 +117,6 @@ function ResultPanel({ data }) {
 }
 
 // Right panel: lab x module coverage matrix with latency per cell
-// TODO: replace mock latency values with live data from aggregator
 function CoverageMatrix({ labs }) {
     const modules = ["kin", "col", "tra", "sen"]
     const rows = labs.map(lab => {
@@ -175,11 +171,44 @@ function CoverageMatrix({ labs }) {
 export default function Dashboard({ labs, onBack }) {
     const [runtimeData, setRuntimeData] = useState(null)
 
+    // Manual slider state — stored in degrees for the UI
+    // [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+    const [manualAngles, setManualAngles] = useState([0, 0, 0, 0, 0, 0, 0])
+
+    // Keep a ref to the WebSocket so the dropdown can call ws.send()
+    // A ref (not state) because changing it shouldn't trigger a re-render
+    const wsRef = useRef(null)
+
+    // Called by ParamPanel when a slider moves
+    function handleJointChange(index, valueDeg) {
+        setManualAngles(prev => {
+            const next = [...prev]
+            next[index] = valueDeg
+            return next
+        })
+    }
+
+    // Called by dropdown — sends { action } payload to backend via WebSocket
+    function sendAction(action) {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ action }))
+            console.log("Sent action:", action)
+        } else {
+            console.warn("WebSocket not connected, cannot send action:", action)
+        }
+    }
+
+    // What actually gets sent to RobotViewer:
+    // - If WebSocket is live → use real robot data (already in radians from Isaac Sim)
+    // - If no WebSocket data → use manual sliders (convert degrees → radians)
+    const displayAngles = runtimeData?.jointAngles
+        || manualAngles.map(deg => deg * DEG_TO_RAD)
+
     // Connect to WebSocket aggregator on mount
-    // Receives real-time simulation results from Isaac Sim via Redis → aggregator
-    // Falls back to mock data in ResultPanel if WebSocket is unavailable
+    // Same WiFi: direct IP. No more ngrok needed.
     useEffect(() => {
-        const ws = new WebSocket("wss://prodromal-elana-dedicatedly.ngrok-free.dev/ws/results")
+        const ws = new WebSocket("ws://192.168.1.3:8082/ws/results")
+        wsRef.current = ws  // store in ref so sendAction() can reach it
         ws.onopen = () => console.log("WebSocket connected")
 
         ws.onmessage = (event) => {
@@ -211,12 +240,41 @@ export default function Dashboard({ labs, onBack }) {
                     cursor: "pointer",
                     fontSize: "13px",
                 }}>← Back</button>
+
                 <span style={{ fontSize: "18px", color: "var(--text-primary)", fontWeight: "500" }}>
-          RoboParam — parameter dashboard
-        </span>
+                    RoboParam — parameter dashboard
+                </span>
+
+                {/* Action dropdown — sends action to backend via WebSocket, resets to placeholder after */}
+                <select
+                    onChange={e => {
+                        if (e.target.value) {
+                            sendAction(e.target.value)
+                            e.target.value = ""  // reset to placeholder after sending
+                        }
+                    }}
+                    defaultValue=""
+                    style={{
+                        marginLeft: "24px",
+                        padding: "6px 14px",
+                        borderRadius: "20px",
+                        border: "1px solid var(--border)",
+                        background: "var(--bg-secondary)",
+                        color: "var(--text-primary)",
+                        fontSize: "13px",
+                        cursor: "pointer",
+                        outline: "none",
+                    }}
+                >
+                    <option value="" disabled>— Select Action —</option>
+                    <option value="push_red">Push Red Block</option>
+                    <option value="push_green">Push Green Block</option>
+                    <option value="reset">Reset</option>
+                </select>
+
                 <span style={{ fontSize: "13px", color: "var(--text-secondary)", marginLeft: "auto", fontWeight: "500" }}>
-          {labs.map(l => l.name).join(" · ")} · {labs.reduce((sum, l) => sum + (l.devices?.length || 0), 0)} devices
-        </span>
+                    {labs.map(l => l.name).join(" · ")} · {labs.reduce((sum, l) => sum + (l.devices?.length || 0), 0)} devices
+                </span>
             </div>
 
             {/* Three column layout */}
@@ -234,7 +292,12 @@ export default function Dashboard({ labs, onBack }) {
                 }}>
                     <div style={{ fontSize: "12px", fontWeight: "500", color: "var(--text-on-card-secondary)", marginBottom: "16px", letterSpacing: "0.05em" }}>PARAMETERS</div>
                     {labs.map(lab => (
-                        <ParamPanel key={lab.labId} lab={lab} />
+                        <ParamPanel
+                            key={lab.labId}
+                            lab={lab}
+                            values={manualAngles}
+                            onChange={handleJointChange}
+                        />
                     ))}
                 </div>
 
@@ -248,8 +311,9 @@ export default function Dashboard({ labs, onBack }) {
                     alignItems: "center",
                     justifyContent: "center",
                 }}>
-                    <RobotViewer jointAngles={runtimeData?.jointAngles || [0,0,0,0,0,0,0]} />
+                    <RobotViewer jointAngles={displayAngles} />
                 </div>
+
                 {/* Right: results panel */}
                 <div style={{
                     width: "220px",
