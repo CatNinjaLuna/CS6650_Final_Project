@@ -207,7 +207,7 @@ export default function Dashboard({ labs, onBack }) {
     // Connect to WebSocket aggregator on mount
     // Same WiFi: direct IP. No more ngrok needed.
     useEffect(() => {
-        const ws = new WebSocket("ws://192.168.1.3:8082/ws/results")
+        const ws = new WebSocket("ws://localhost:8082/ws/results")
         wsRef.current = ws  // store in ref so sendAction() can reach it
         ws.onopen = () => console.log("WebSocket connected")
 
