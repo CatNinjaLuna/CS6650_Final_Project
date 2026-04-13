@@ -1,4 +1,4 @@
-# SnapGrid — Distributed VLA Training Pipeline for Robotic LEGO Assembly
+# Robo — Distributed VLA Training Pipeline for Robotic LEGO Assembly
 
 CS6650 Final Project · Northeastern University
 
@@ -10,7 +10,7 @@ Advisor: Prof. Vishal Rajpal
 
 ## Overview
 
-SnapGrid is a distributed system for real-time robot parameter visualization and VLA (Vision-Language-Action) training for robotic LEGO assembly tasks. Joint angle updates are ingested via AWS SQS, forwarded to an NVIDIA Isaac Sim instance running a Franka Panda arm, and streamed to a React + Three.js frontend via WebSocket.
+Robo is a distributed system for real-time robot parameter visualization and VLA (Vision-Language-Action) training for robotic LEGO assembly tasks. Joint angle updates are ingested via AWS SQS, forwarded to an NVIDIA Isaac Sim instance running a Franka Panda arm, and streamed to a React + Three.js frontend via WebSocket.
 
 ## Architecture
 
@@ -33,7 +33,7 @@ WebSocket Aggregator
 | `worker3` | Spring Boot SQS worker — polls joint angle messages, calls Isaac Sim REST endpoint, publishes results to Redis | ✅ Running |
 | Isaac Sim | NVIDIA Isaac Sim running Franka Panda arm (Windows, NVIDIA GPU required) | ✅ Running |
 | WebSocket Aggregator | Subscribes to Redis, fans out simulation results to frontend over WebSocket | ✅ Running |
-| Frontend | React + Three.js 3D URDF visualization | 🔲 In progress |
+| Frontend | React + Three.js 3D URDF visualization | ✅ Running |
 
 ## Stack
 
@@ -129,9 +129,19 @@ Redis received: {"deviceId":"arm-1","module":"kinematics","jointAngles":[...],"e
 
 Full pipeline verified: **SQS → worker3 → Isaac Sim → Redis → aggregator → WebSocket**
 
-![worker3 publishes to Redis](docs/screenshots/worker3-redis-publish.png)
-![aggregator receives from Redis](docs/screenshots/aggregator-redis-receive.png)
-![Isaac Sim Franka scene](docs/screenshots/isaac-sim-franka-scene.png)
+### Isaac Sim — Action Execution (push_red / push_green / reset)
+Direct REST calls to the Isaac Sim action endpoint (`push_red`, `push_green`, `reset`) returning HTTP 200 with all 7 joint values. Confirms the simulation responds correctly to discrete action commands before wiring up the full SQS pipeline.
+
+![Isaac Sim action endpoint test — 200 OK with joint values](<docs/screenshots/isaac sim actions testing ok.png>)
+
+---
+
+### Full Pipeline — SQS → worker3 → Isaac Sim → Aggregator → WebSocket → Frontend
+End-to-end pipeline running live: SQS messages sent from Mac terminal, worker3 consuming and forwarding to Isaac Sim (latency ~33–69ms visible in logs), results published to Redis, aggregator broadcasting to the React dashboard via WebSocket. Browser DevTools shows the live WebSocket payload including `jointAngles`, `endEffector`, `collision`, and `latency`.
+
+![Full pipeline: SQS to WebSocket to frontend](<docs/screenshots/end-to-end sqs msg test.png>)
+
+---
 
 ## SQS Queue
 
