@@ -2,7 +2,7 @@
 
 CS6650 Final Project · Northeastern University
 
-Team: Yuhan Li · Wenxuan Nie · Zhongjie Ren · Zhongyi Shi
+Team: Carolina Li · Wenxuan Nie · Zhongjie Ren · Zhongyi Shi
 
 Advisor: Prof. Vishal Rajpal
 
@@ -43,7 +43,7 @@ Isaac Sim @ 192.168.1.3:8011
 - **worker3 is the only SQS consumer** — it polls, forwards to Isaac Sim via REST, then publishes the result to Redis.
 - **Redis is used as pub/sub only** — not as a key-value store or database. There is no read operation to query. Messages are pushed to subscribers on arrival and do not persist.
 - The **aggregator subscribes to Redis** and fans results out to all connected WebSocket sessions simultaneously — O(1) work per update regardless of client count.
-- **Registration service** has its own separate database — it is not related to Redis and is not part of the simulation pipeline.
+- **Registration service** runs on port `8084` and manages lab/device metadata in memory — it is separate from the simulation pipeline and not related to Redis.
 
 ---
 
@@ -71,9 +71,9 @@ Step by step:
 | `worker3` | `8083` | Spring Boot SQS worker — polls action commands, calls Isaac Sim REST, publishes results to Redis | ✅ Running |
 | `aggregator` | `8082` | Spring Boot WebSocket aggregator — subscribes to Redis pub/sub, fans out to all frontend clients | ✅ Running |
 | `frontend` | `3000` | React + Three.js 3D URDF visualization of Franka Panda arm | ✅ Running |
-| `registration-service` | — | User registration and session management — has its own database, separate from Redis | 🚧 In progress |
-| `vla` | — | OpenVLA inference server — produces 7-DOF joint deltas from camera observations | 🚧 April 21 |
-| Isaac Sim | `8011` | NVIDIA Isaac Sim running Franka Panda arm (Windows, NVIDIA GPU required) | see `/isaac-sim` |
+| `registration-service` | `8084` | Manages lab and device metadata in memory — validates device existence for worker3 | ✅ Running |
+| `vla` | — | OpenVLA inference server — produces 7-DOF joint deltas from camera observations | stretch goal — see [`/vla`](./vla) |
+| Isaac Sim | `8011` | NVIDIA Isaac Sim running Franka Panda arm (Windows, NVIDIA GPU required) | ✅ Running — see [`/isaac-sim`](./isaac-sim) |
 
 ---
 
@@ -144,7 +144,7 @@ SQS and Redis pub/sub are effectively unbounded for this scale. The practical bo
 Standard queue gives higher throughput and is sufficient for the current demo scope where actions are discrete and non-overlapping. FIFO guarantees strict ordering which matters when joint commands must be applied in exact sequence — that's a planned optimization for the April 21 showcase.
 
 **Is Redis a database in this system?**
-No. Redis is used exclusively as a pub/sub message broker on channel `roboparam:results`. There is no persistence, no reads, no key-value store usage. The registration service has its own separate database unrelated to Redis.
+No. Redis is used exclusively as a pub/sub message broker on channel `roboparam:results`. There is no persistence, no reads, no key-value store usage. The registration service uses an in-memory store (Java `LinkedHashMap`) — also not Redis.
 
 ---
 
