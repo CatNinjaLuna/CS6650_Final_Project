@@ -36,7 +36,7 @@ Isaac Sim @ 192.168.1.3:8011
 (see /isaac-sim for setup)
 ```
 
-**Critical design points — read before asking architecture questions:**
+**Critical design points:**
 
 - The **client WebSocket is receive-only** — results are pushed from the aggregator to clients. Clients never publish through WebSocket.
 - All **commands flow outbound via SQS only** — the client sends an HTTP POST which enqueues to SQS, never directly to worker3 or Isaac Sim.
@@ -117,6 +117,34 @@ Polling the aggregator for new results would introduce latency and unnecessary l
 - SQS long-poll (`waitTimeSeconds=20`) eliminates busy-waiting
 - Measured end-to-end latency: **~33–69ms** (SQS receive → Isaac Sim response → Redis publish)
 - VLA inference latency (~100–500ms for April 21 scope) runs asynchronously and does not block the real-time visualization pipeline
+
+---
+
+## Architecture FAQ
+
+**Why not have the client send commands directly to worker3 via REST?**
+That would couple the client to a single worker instance. If worker3 is slow or busy processing a command, the next client would block waiting for a response. SQS absorbs the burst — any number of clients can enqueue without waiting, and worker3 drains the queue independently.
+
+**Why not use WebSocket for both sending commands and receiving results?**
+WebSocket is bidirectional but stateful — maintaining send channels for every client adds complexity and a potential bottleneck at the aggregator. Separating concerns keeps the design clean: SQS handles durable, decoupled command delivery; WebSocket handles lightweight real-time fan-out to clients.
+
+**What happens if worker3 goes down?**
+Messages stay in SQS until the visibility timeout expires (30s), then become visible again for reprocessing. No messages are lost. When worker3 restarts, it resumes polling and drains the backlog.
+
+**What happens if Isaac Sim goes down?**
+worker3 catches the connection error, logs it, and does not delete the SQS message. The message retries after 30s. The rest of the system (aggregator, frontend, Redis) continues running unaffected.
+
+**What happens if a client disconnects?**
+The aggregator removes the stale WebSocket session on disconnect. All other connected clients continue receiving updates normally.
+
+**How many concurrent users can the system handle?**
+SQS and Redis pub/sub are effectively unbounded for this scale. The practical bottleneck is worker3 — a single poller processing one command at a time. Multiple worker3 instances can be added to increase throughput; SQS visibility timeout prevents duplicate processing. The April 21 stress test measures this curve directly.
+
+**Why Standard SQS queue and not FIFO?**
+Standard queue gives higher throughput and is sufficient for the current demo scope where actions are discrete and non-overlapping. FIFO guarantees strict ordering which matters when joint commands must be applied in exact sequence — that's a planned optimization for the April 21 showcase.
+
+**Is Redis a database in this system?**
+No. Redis is used exclusively as a pub/sub message broker on channel `roboparam:results`. There is no persistence, no reads, no key-value store usage. The registration service has its own separate database unrelated to Redis.
 
 ---
 
@@ -305,6 +333,11 @@ SQS messages sent from Mac terminal, worker3 consuming and forwarding to Isaac S
 | Internal demo (fixed actions: push_red, push_green, reset) | April 14 | ✅ Complete |
 | SQS load / stress test (K concurrent clients, latency curve) | April 21 | 🚧 In progress |
 | VLA showcase (OpenVLA + live Isaac Sim camera feed) | April 21 | 🚧 In progress |
-| OpenVLA inference caching (reduce ~500ms to near-zero for repeated commands) | April 21 | 🚧 In progress |
-| Redis Cluster (eliminate pub/sub single point of failure) | April 21 | 🚧 In progress |
-| SQS FIFO Queue (deterministic joint command ordering) | April 21 | 🚧 In progress |
+
+## Future Optimizations
+
+| Optimization | Description |
+|---|---|
+| OpenVLA inference caching | Cache results for repeated commands to reduce ~500ms inference latency to near-zero |
+| Redis Cluster | Replace single Redis node with a cluster to eliminate pub/sub single point of failure |
+| SQS FIFO Queue | Guarantee strict joint command ordering for deterministic robot motion |
