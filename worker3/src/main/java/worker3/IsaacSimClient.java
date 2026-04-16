@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class IsaacSimClient {
@@ -18,6 +19,9 @@ public class IsaacSimClient {
 
   private final RestTemplate restTemplate;
   private final String baseUrl;
+
+  @Value("${worker.isaac-sim-mock:false}")
+  private boolean mock;
 
   public IsaacSimClient(
       RestTemplate restTemplate,
@@ -38,6 +42,26 @@ public class IsaacSimClient {
   }
 
   public SimResponse sendJointAngles(JointAngleMessage msg) {
+    if (mock) {
+      log.info("→ Isaac Sim [MOCK] returning fake response");
+      SimResponse r = new SimResponse();
+      r.appliedJoints = Map.of(
+          "panda_joint1", 0.1,
+          "panda_joint2", -0.3,
+          "panda_joint3", 0.0,
+          "panda_joint4", -1.5,
+          "panda_joint5", 0.0,
+          "panda_joint6", 1.8,
+          "panda_joint7", 0.7
+      );
+      r.collision = false;
+      r.endEffector = new SimResponse.EndEffector();
+      r.endEffector.x = 0.107;
+      r.endEffector.y = 0.0;
+      r.endEffector.z = 0.927;
+      return r;
+    }
+
     String url = baseUrl + UPDATE_PATH;
 
     HttpHeaders headers = new HttpHeaders();
