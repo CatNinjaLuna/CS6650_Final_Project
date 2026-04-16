@@ -376,14 +376,6 @@ SQS messages sent from Mac terminal, worker3 consuming and forwarding to Isaac S
 
 ---
 
-## Roadmap
-
-| Milestone | Target | Status |
-|---|---|---|
-| Internal demo (fixed actions: push_red, push_green, reset) | April 14 | ✅ Complete |
-| SQS load / stress test (K concurrent clients, latency curve) | April 21 | 🚧 In progress |
-| VLA showcase (OpenVLA + live Isaac Sim camera feed) | April 21 | 🚧 In progress |
-
 ## Future Optimizations
 
 | Optimization | Description |
