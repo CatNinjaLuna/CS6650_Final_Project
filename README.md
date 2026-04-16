@@ -199,9 +199,9 @@ This writes to `~/.aws/credentials` and `~/.aws/config` permanently — no need 
 1. Go to AWS Console → IAM → Users → Create user
 2. Name the user (e.g. `snapgrid-worker`), disable console access
 3. Attach the following policies directly:
-    - `AmazonSQSFullAccess` — required for worker3 to poll and delete SQS messages
-    - `AmazonEC2FullAccess` — required if deploying to EC2
-    - `ServiceQuotasFullAccess` — optional, for quota monitoring
+   - `AmazonSQSFullAccess` — required for worker3 to poll and delete SQS messages
+   - `AmazonEC2FullAccess` — required if deploying to EC2
+   - `ServiceQuotasFullAccess` — optional, for quota monitoring
 4. Go to Security credentials → Create access key → select "Local code"
 5. Copy the Access Key ID and Secret Access Key into `aws configure`
 
@@ -233,7 +233,40 @@ Verify either option:
 aws sqs list-queues
 ```
 
-### 3. Run worker3
+### Cross-Account SQS Access
+
+If a team member is using a **different AWS account** and needs to access `roboparam-queue`, a resource-based policy must be added to the queue granting their IAM user explicit access.
+
+Go to AWS Console → SQS → `roboparam-queue` → Edit → Access policy, and add a statement for their IAM user ARN:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<their-account-id>:user/<their-username>"
+      },
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "arn:aws:sqs:us-east-1:179895363911:roboparam-queue"
+    }
+  ]
+}
+```
+
+Their IAM user must also have `AmazonSQSFullAccess` (or equivalent) attached on their own account side. Both the queue policy and the user policy must allow access for cross-account calls to succeed.
+
+![Cross-account SQS access policy — roboparam-queue granting Joey's IAM user access](<docs/screenshots/cross-account SQS access.png>)
+
+---
+
+
 
 Edit `worker3/src/main/resources/application.yml` if needed:
 
@@ -375,6 +408,8 @@ SQS messages sent from Mac terminal, worker3 consuming and forwarding to Isaac S
 ![Full pipeline: SQS to WebSocket to frontend](<docs/screenshots/end-to-end sqs msg test.png>)
 
 ---
+
+
 
 ## Future Optimizations
 
