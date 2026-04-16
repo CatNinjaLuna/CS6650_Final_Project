@@ -164,7 +164,9 @@ No. Redis is used exclusively as a pub/sub message broker on channel `roboparam:
 docker run -d -p 6379:6379 redis:7
 ```
 
-### 2. Configure AWS Credentials (AWS Academy)
+### 2. Configure AWS Credentials
+
+#### Option A — AWS Academy (session-based)
 
 Each time your AWS Academy lab session restarts, update credentials:
 
@@ -178,7 +180,55 @@ EOF
 aws configure set region us-east-1
 ```
 
-Verify:
+#### Option B — Personal AWS Account (permanent credentials)
+
+No session token needed. One-time setup:
+
+```bash
+aws configure
+# AWS Access Key ID: <your_access_key_id>
+# AWS Secret Access Key: <your_secret_access_key>
+# Default region name: us-east-1
+# Default output format: json
+```
+
+This writes to `~/.aws/credentials` and `~/.aws/config` permanently — no need to update between sessions.
+
+**IAM setup for personal account:**
+
+1. Go to AWS Console → IAM → Users → Create user
+2. Name the user (e.g. `snapgrid-worker`), disable console access
+3. Attach the following policies directly:
+    - `AmazonSQSFullAccess` — required for worker3 to poll and delete SQS messages
+    - `AmazonEC2FullAccess` — required if deploying to EC2
+    - `ServiceQuotasFullAccess` — optional, for quota monitoring
+4. Go to Security credentials → Create access key → select "Local code"
+5. Copy the Access Key ID and Secret Access Key into `aws configure`
+
+**Minimum required SQS permissions** (if you prefer a least-privilege custom policy instead of `AmazonSQSFullAccess`):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "arn:aws:sqs:us-east-1:826889494728:roboparam-queue"
+    }
+  ]
+}
+```
+
+![Personal AWS IAM user setup — snapgrid-worker with SQS and EC2 permissions](docs/screenshots/personal_aws_IAM.png)
+
+Verify either option:
 ```bash
 aws sqs list-queues
 ```
