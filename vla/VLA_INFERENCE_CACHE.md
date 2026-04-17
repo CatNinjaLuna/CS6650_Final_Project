@@ -46,7 +46,7 @@ See architecture diagram: `vla_inference_cache_diagram.png`
 
 **EC2 cache placement and horizontal scaling:**
 
-![Redis EC2 cache hit/miss and scaling diagram](redis_ec2_cache_hit_miss_scaling.png)
+![Redis EC2 cache hit/miss and scaling diagram](redis_ec2_cache_hit_miss_scaling_polished.png)
 
 ---
 
