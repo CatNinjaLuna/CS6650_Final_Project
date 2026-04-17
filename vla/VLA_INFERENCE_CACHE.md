@@ -139,7 +139,9 @@ In a demo or real-time robot control scenario, the same 2–3 instructions are s
 
 A 99.1% latency reduction on repeated instructions demonstrates that instruction-level caching is highly effective for this workload. The remaining ~19ms on cache hits reflects Redis lookup + SQS publish time, not GPU inference.
 
-*Screenshot: `vla_cache_miss_and_hit.png`*
+*Screenshot:*
+
+![Cache miss and hit results](vla_cache_miss_and_hit.png)
 
 ---
 
