@@ -191,8 +191,8 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
 ## Milestone Checklist
 
 - [x] Camera endpoint live at `http://192.168.1.3:8012/camera`
-    - `sim_camera.py` running in Isaac Sim Script Editor on port 8012
-    - Verified: `curl http://192.168.1.3:8012/camera` returns base64 JPEG
+  - `sim_camera.py` running in Isaac Sim Script Editor on port 8012
+  - Verified: `curl http://192.168.1.3:8012/camera` returns base64 JPEG
 
 - [x] EC2 g4dn.xlarge launched (`i-0e08e1a63fc48056e`)
   ```bash
@@ -223,7 +223,17 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
       bitsandbytes==0.43.1 pillow boto3 timm==0.9.16 peft huggingface_hub fastapi uvicorn requests
   ```
 
-- [ ] OpenVLA-7b model downloaded on EC2
+- [x] NVIDIA drivers installed on EC2
+  ```bash
+  sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/amzn2023/x86_64/cuda-amzn2023.repo
+  sudo dnf clean all
+  sudo dnf install -y nvidia-driver nvidia-driver-cuda
+  sudo reboot
+  # after reboot verify:
+  nvidia-smi
+  ```
+
+- [x] OpenVLA-7b model downloaded on EC2 (~15GB verified)
   ```bash
   conda activate openvla
   python -c "
@@ -235,6 +245,7 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
   )
   print('done')
   "
+  # verify: du -sh ~/openvla-7b/ → 15G
   ```
 
 - [ ] `vla_inference.py` deployed and running
@@ -257,5 +268,5 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
   ```
 
 - [ ] Latency numbers collected
-    - Instrument: camera pull → inference → SQS publish → worker3 → Isaac Sim response
-    - Surface in frontend and showcase presentation
+  - Instrument: camera pull → inference → SQS publish → worker3 → Isaac Sim response
+  - Surface in frontend and showcase presentation
