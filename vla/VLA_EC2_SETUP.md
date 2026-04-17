@@ -281,7 +281,3 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
   - **Known issue:** Pipeline is fully connected (camera → OpenVLA → SQS → worker3 → `/roboparam/update` 200 OK) but arm shows no visible movement in Isaac Sim viewport
   - Root cause under investigation: `sim_state.py` joint drive uses `STIFFNESS=1000, DAMPING=200` with USD PhysX DriveAPI — may require minimum delta threshold or physics timestep alignment to produce visible motion. Degrees/radians unit mismatch also investigated (OpenVLA outputs radians; `sim_state.py` preset joints use degrees).
   - Next steps: verify unit convention in `apply_joints()`, test with manually crafted large joint angle payload to confirm `/roboparam/update` can produce visible motion independently of VLA
-
-- [ ] Latency instrumentation across full pipeline
-  - Instrument: camera pull → inference → SQS publish → worker3 → Isaac Sim response
-  - Surface in frontend and showcase presentation
