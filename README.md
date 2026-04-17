@@ -20,35 +20,7 @@ The core distributed systems design decision is **SQS as a decoupling layer** �
 
 ## Architecture
 
-```
-curl / frontend
-    |
-    | POST /infer (language instruction)
-    ↓
-EC2 g4dn.xlarge (OpenVLA inference)
-    |── Redis cache check (localhost:6379)
-    |   ├── HIT  → return cached joint angles (~19ms)
-    |   └── MISS → run OpenVLA inference (~1000–2300ms) → write to cache
-    |
-    | joint angles → SQS
-    ↓
-Client (React + Three.js)
-    |                       ↑
-    | HTTP POST (action)    | WebSocket (receive-only)
-    ↓                       |
-AWS SQS              WebSocket Aggregator (port 8082)
-(roboparam-queue)           ↑
-    |                Redis pub/sub
-    |               (roboparam:results)
-    ↓                       ↑
-worker3 (port 8083) ────────┘
-    |
-    | REST POST
-    ↓
-Isaac Sim @ 192.168.1.3
-    ├── sim_state.py  — port 8011 — arm control + block actions
-    └── sim_camera.py — port 8012 — live JPEG camera feed
-```
+![Architecture Diagram](docs/screenshots/root-diagram.png)
 
 **Critical design points:**
 
