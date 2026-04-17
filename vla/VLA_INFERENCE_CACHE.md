@@ -48,6 +48,8 @@ See architecture diagram: `vla_inference_cache_diagram.png`
 
 ![Redis EC2 cache hit/miss and scaling diagram](redis_ec2_cache_hit_miss_scaling.png)
 
+In a horizontally scaled deployment, all OpenVLA instances share a single Redis node. When instance 1 runs inference for "push the red block forward" and writes the result to Redis, instance 2 handling the same instruction on the next request gets a cache hit — skipping GPU inference entirely. Without a shared cache, each instance would independently run the same expensive GPU computation, wasting resources and increasing latency unnecessarily.
+
 ---
 
 ## Why Redis on EC2 (not Mac)
