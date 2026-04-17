@@ -546,6 +546,6 @@ Three scripts covering different pipeline segments — see [`/stress-test/README
 
 | Optimization | Description | Expected Impact |
 |---|---|---|
-| OpenVLA inference caching | ✅ Implemented — Redis instruction-level cache on EC2. Cache miss: 2172ms → Cache hit: 19ms | 99.1% latency reduction on repeated instructions |
+| [OpenVLA inference caching](./vla/VLA_INFERENCE_CACHE.md) | ✅ Implemented — Redis instruction-level cache on EC2. Cache miss: 2172ms → Cache hit: 19ms | 99.1% latency reduction on repeated instructions |
 | Redis Cluster | Replace single Redis pub/sub node with a cluster to eliminate SPOF and support higher message volumes | Eliminates Redis as single point of failure; enables sub-ms pub/sub at scale |
 | SQS FIFO Queue | Replace Standard queue with FIFO to guarantee strict joint command ordering | Deterministic robot motion under concurrent multi-user load |
