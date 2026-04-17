@@ -1,6 +1,6 @@
-# VLA Inference — Setup & Training Guide
+# VLA Inference — Setup & Deployment Guide
 
-This document covers the full VLA pipeline for SnapGrid: fine-tuning OpenVLA-7b on BridgeData V2 block-pushing data using a university HPC cluster, then running inference wired to the SQS pipeline.
+This document covers the full VLA inference pipeline for SnapGrid: running OpenVLA-7b on an AWS EC2 GPU instance, wired into the distributed SQS pipeline.
 
 ---
 
@@ -8,189 +8,194 @@ This document covers the full VLA pipeline for SnapGrid: fine-tuning OpenVLA-7b 
 
 ```
 Isaac Sim (Windows, RTX 5090)
-    ↓ /camera endpoint (JPEG frame)
-VLA Inference Node (HPC cluster or EC2 g4dn.xlarge)
-    - pulls camera frame via HTTP
-    - runs fine-tuned OpenVLA-7b inference
-    - publishes joint angles → SQS roboparam-queue
+    ↓ sim_camera.py — port 8012 — /camera endpoint (JPEG frame)
+EC2 g4dn.xlarge (T4 GPU, us-east-1)
+    - pulls live camera frame via HTTP
+    - runs OpenVLA-7b inference with language instruction
+    - publishes 7-DOF joint angles → SQS roboparam-queue
     ↓
-worker3 (Spring Boot, Mac) → Isaac Sim REST → arm executes
+worker3 (Spring Boot, Mac, port 8083) → Isaac Sim REST (port 8011) → arm executes
     ↓
-Redis → aggregator → WebSocket → frontend
+Redis pub/sub → aggregator (port 8082) → WebSocket → frontend
 ```
 
 ---
 
 ## VLA Strategy
 
-**Model:** OpenVLA-7b (HuggingFace: `openvla/openvla-7b`)
+**Model:** OpenVLA-7b pretrained (HuggingFace: `openvla/openvla-7b`)
 
-**Approach:** Fine-tune on BridgeData V2 block-pushing subset rather than zero-shot inference. Fine-tuning on open-source manipulation data produces noticeably more purposeful arm behavior and supports a stronger research narrative around sim-to-real transfer characteristics.
+**Approach:** Pretrained zero-shot inference. OpenVLA was trained on BridgeData V2 block-pushing demonstrations — directly analogous to the SnapGrid push scene. No fine-tuning required for the April 21 showcase.
 
-**Narrative framing:** *"We fine-tuned OpenVLA on the BridgeData V2 block-pushing subset and evaluate sim-to-real transfer into NVIDIA Isaac Sim. The VLA model is a pluggable research-grade component sitting on top of our distributed infrastructure layer."*
+**Future work:** Fine-tune on Isaac Sim demo trajectories (RLDS format) using LoRA on Northeastern Discovery cluster (A100-80GB already set up at `/projects/SuperResolutionData/CL-shadowRemoval-logChroma/vla-inference/openvla-7b`).
+
+**Narrative framing:** *"OpenVLA is a pluggable, research-grade inference component sitting on top of our distributed infrastructure layer. The same SQS → worker3 → Isaac Sim pipeline works regardless of what model sits upstream."*
 
 ---
 
-## Phase 1: Fine-tuning on HPC Cluster
+## AWS EC2 Instance
 
-### Dataset: BridgeData V2 (block-pushing subset)
+| Resource | Value |
+|---|---|
+| Instance ID | `i-0e08e1a63fc48056e` |
+| Instance type | `g4dn.xlarge` (1x T4 GPU, 16GB VRAM, 4 vCPU) |
+| AMI | `ami-098e39bafa7e7303d` (Amazon Linux 2023) |
+| Region | `us-east-1f` |
+| Public IP | `3.81.26.124` *(changes on restart — use describe-instances)* |
+| Key pair | `openvla-key` → `~/CS6650/openvla-key.pem` |
+| Security group | `sg-04e3d077c5be1f4fd` (openvla-sg) |
+| Ports open | 22 (SSH), 8090 (inference endpoint) |
+| Cost | ~$0.53/hr while running |
 
-BridgeData V2 is an open-source robot manipulation dataset collected on a WidowX arm. The block-pushing subset contains demonstrations of pushing colored blocks on a tabletop — directly analogous to the SnapGrid Isaac Sim scene.
-
-Download the subset:
+### SSH
 ```bash
-# On HPC cluster
-pip install huggingface_hub
+ssh -i ~/CS6650/openvla-key.pem ec2-user@<public-ip>
+```
+
+### Get current public IP
+```bash
+aws ec2 describe-instances \
+  --instance-ids i-0e08e1a63fc48056e \
+  --query "Reservations[0].Instances[0].PublicIpAddress" \
+  --region us-east-1 \
+  --output text
+```
+
+### Stop instance when not in use (IMPORTANT — avoid charges)
+```bash
+aws ec2 stop-instances --instance-ids i-0e08e1a63fc48056e --region us-east-1
+```
+
+### Restart instance
+```bash
+aws ec2 start-instances --instance-ids i-0e08e1a63fc48056e --region us-east-1
+```
+
+---
+
+## Environment Setup (run once on EC2)
+
+```bash
+# Install conda
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b
+~/miniconda3/bin/conda init bash
+source ~/.bashrc
+
+# Create env
+conda create -n openvla python=3.10 -y
+conda activate openvla
+
+# Install dependencies
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install transformers==4.41.2 tokenizers==0.19.1 accelerate==0.30.1 \
+    bitsandbytes==0.43.1 pillow boto3 timm==0.9.16 peft huggingface_hub fastapi uvicorn requests
+```
+
+---
+
+## Model Download (run once on EC2)
+
+```bash
+conda activate openvla
 python -c "
 import huggingface_hub
 huggingface_hub.snapshot_download(
-    'rail-berkeley/bridge_dataset',
-    repo_type='dataset',
-    local_dir='./bridge_data',
-    allow_patterns=['*block*']
+    'openvla/openvla-7b',
+    local_dir='./openvla-7b',
+    ignore_patterns=['*.msgpack', '*.h5']
 )
+print('done')
 "
 ```
 
-### HPC Job Script (SLURM)
-
-Save as `vla/hpc_finetune.sh`:
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=openvla-finetune
-#SBATCH --gres=gpu:1
-#SBATCH --mem=64G
-#SBATCH --time=04:00:00
-#SBATCH --output=logs/finetune_%j.out
-
-module load python/3.10
-module load cuda/11.8
-
-pip install transformers==4.41.2 tokenizers==0.19.1 accelerate==0.30.1 \
-    bitsandbytes==0.43.1 pillow boto3 timm==0.9.16 peft -q
-
-python vla/finetune.py \
-    --model_id openvla/openvla-7b \
-    --dataset_path ./bridge_data \
-    --output_dir ./vla/checkpoints \
-    --num_epochs 3 \
-    --batch_size 4 \
-    --learning_rate 2e-5
-```
-
-Submit:
-```bash
-sbatch vla/hpc_finetune.sh
-```
-
-### Expected Training Time
-- ~2-3 hours on a single A100 or V100 GPU
-- ~4-6 hours on older HPC GPUs (P100, RTX 3090)
-
-### Download Weights After Training
-
-```bash
-# From your Mac, pull the fine-tuned checkpoint
-scp -r <hpc-username>@<hpc-address>:~/vla/checkpoints ./vla/checkpoints
-```
+Model size: ~15GB. Takes ~5-10 min on EC2 (high bandwidth).
 
 ---
 
-## Phase 2: Inference Wired to SQS
+## Inference Service: `vla_inference.py`
 
-### Inference Script: `vla/infer.py`
+Exposes a FastAPI endpoint at `POST /infer`. Accepts a JSON body with an `instruction` field.
 
-The inference loop:
-1. Pull a camera frame from Isaac Sim (`GET http://<windows-ip>:8011/camera`)
-2. Run fine-tuned OpenVLA inference with instruction prompt
-3. Parse 7-DOF joint angle output
-4. Clamp joint angles to safe Franka Panda ranges
+**Inference loop:**
+1. `GET http://192.168.1.3:8012/camera` → base64 JPEG
+2. Decode → PIL Image
+3. Run OpenVLA inference (image + instruction) → 7-DOF joint angles
+4. Clamp to safe Franka Panda limits
 5. Publish to SQS `roboparam-queue`
-6. worker3 picks up → forwards to Isaac Sim → arm executes
+6. Return latency + joint angles to caller
 
-### Instruction Prompt
-
-```python
-INSTRUCTION = "push the red block forward on the table"
-```
-
-### Joint Angle Safety Clamping
-
-OpenVLA outputs may exceed safe joint limits. Always clamp before publishing to SQS:
+### Joint Angle Safety Limits (Franka Panda)
 
 ```python
 JOINT_LIMITS = [
-    (-2.8973, 2.8973),   # joint 1
-    (-1.7628, 1.7628),   # joint 2
-    (-2.8973, 2.8973),   # joint 3
-    (-3.0718, -0.0698),  # joint 4
-    (-2.8973, 2.8973),   # joint 5
-    (-0.0175, 3.7525),   # joint 6
-    (-2.8973, 2.8973),   # joint 7
+    (-2.8973,  2.8973),   # joint 1
+    (-1.7628,  1.7628),   # joint 2
+    (-2.8973,  2.8973),   # joint 3
+    (-3.0718, -0.0698),   # joint 4
+    (-2.8973,  2.8973),   # joint 5
+    (-0.0175,  3.7525),   # joint 6
+    (-2.8973,  2.8973),   # joint 7
 ]
+```
+
+### Run the service
+```bash
+conda activate openvla
+python vla_inference.py
+```
+
+### Test from Mac
+```bash
+curl -X POST http://<ec2-public-ip>:8090/infer \
+  -H "Content-Type: application/json" \
+  -d '{"instruction": "push the red block forward"}'
+```
+
+### Expected response
+```json
+{
+  "status": "ok",
+  "instruction": "push the red block forward",
+  "joint_angles": [0.12, -0.43, 0.08, -1.92, 0.03, 1.54, 0.71],
+  "latency_ms": 1842.5
+}
 ```
 
 ---
 
-## Phase 3: AWS EC2 (when quota approved)
+## SQS Configuration
 
-For sustained inference during the showcase, migrate from HPC to EC2.
+| Parameter | Value |
+|---|---|
+| Queue name | `roboparam-queue` |
+| Queue URL | `https://sqs.us-east-1.amazonaws.com/826889494728/roboparam-queue` |
+| Region | `us-east-1` |
+| Type | Standard |
 
-### AWS Resources
+AWS credentials on EC2 are picked up automatically via the `snapgrid-worker` IAM user keys configured in `~/.aws/credentials`.
 
-| Resource | Name / ID | Notes |
+---
+
+## Isaac Sim Endpoints (Windows machine)
+
+| Endpoint | Port | Description |
 |---|---|---|
-| EC2 instance type | `g4dn.xlarge` | 1x T4 GPU, 16GB VRAM |
-| AMI | `ami-0c02fb55956c7d316` | Amazon Linux 2, us-east-1 |
-| Key pair | `openvla-key` | Stored at `/Users/carolina1650/CS6650/openvla-key.pem` |
-| Security group | `sg-04e3d077c5be1f4fd` (openvla-sg) | SSH port 22 open to static IP only |
-| Region | `us-east-1` | Same region as SQS queue |
-| vCPU quota request | L-DB2E81BA | Requested 4 vCPUs, status PENDING |
+| `POST /roboparam/roboparam/action` | 8011 | Send arm action / block command |
+| `GET /camera` | 8012 | Live JPEG frame from RobotCamera prim |
 
-### Launch Instance (once quota approved)
-
-```bash
-aws ec2 run-instances \
-  --image-id ami-0c02fb55956c7d316 \
-  --instance-type g4dn.xlarge \
-  --key-name openvla-key \
-  --security-group-ids sg-04e3d077c5be1f4fd \
-  --region us-east-1 \
-  --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":100}}]' \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=openvla-inference}]' \
-  --no-cli-pager
-```
-
-### SSH
-
-```bash
-ssh -i /Users/carolina1650/CS6650/openvla-key.pem ec2-user@<public-ip>
-```
-
-### Cost Estimate
-
-| Resource | Rate | Est. usage | Est. cost |
-|---|---|---|---|
-| g4dn.xlarge | $0.526/hr | ~20 hrs total | ~$10.50 |
-| EBS 100GB gp2 | $0.10/GB/mo | 1 month | $10.00 |
-| SQS messages | $0.40/1M | negligible | ~$0.00 |
-| **Total** | | | **~$20** |
-
-**Always stop the instance when not in use:**
-```bash
-aws ec2 stop-instances --instance-ids <instance-id>
-```
+Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py` and `sim_camera.py`). Keep Isaac Sim in Play mode during inference.
 
 ---
 
 ## Milestone Checklist
 
-- [ ] Download BridgeData V2 block-pushing subset on HPC
-- [ ] Run fine-tuning job on HPC (`hpc_finetune.sh`)
-- [ ] Download checkpoint to Mac (`vla/checkpoints/`)
-- [ ] Add `/camera` endpoint to `isaac-sim/sim_state.py`
-- [ ] Write `vla/infer.py` inference + SQS publish loop
-- [ ] Test full pipeline: camera → OpenVLA → SQS → worker3 → Isaac Sim
-- [ ] Collect latency numbers for showcase
-- [ ] Migrate inference to EC2 (when quota approved)
+- [x] Camera endpoint live at `http://192.168.1.3:8012/camera`
+- [x] EC2 g4dn.xlarge launched (`i-0e08e1a63fc48056e`)
+- [x] Port 8090 open in security group
+- [x] SSH access confirmed
+- [ ] conda env + dependencies installed on EC2
+- [ ] OpenVLA-7b model downloaded on EC2
+- [ ] `vla_inference.py` deployed and running
+- [ ] End-to-end test: curl → OpenVLA → SQS → worker3 → Isaac Sim arm moves
+- [ ] Latency numbers collected
