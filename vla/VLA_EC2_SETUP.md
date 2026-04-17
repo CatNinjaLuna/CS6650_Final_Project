@@ -276,3 +276,13 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
 - [ ] Latency instrumentation across full pipeline
   - Instrument: camera pull → inference → SQS publish → worker3 → Isaac Sim response
   - Surface in frontend and showcase presentation
+
+---
+
+## Git
+
+```bash
+git add vla/VLA_EC2_SETUP.md vla/sim_camera_endpoint_verified.png vla/sim_both_servers_running.png vla/vla_inference_end_to_end_success.png
+git commit -m "update VLA EC2 setup guide: mark milestones complete, add screenshots"
+git push origin main
+```
