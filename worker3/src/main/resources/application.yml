@@ -3,7 +3,7 @@ spring:
     name: worker3
   data:
     redis:
-      host: 192.168.1.3
+      host: localhost
       port: 6379
 
 server:
@@ -13,12 +13,16 @@ worker:
   sqs-queue-url: https://sqs.us-east-1.amazonaws.com/179895363911/roboparam-queue
   isaac-sim-base-url: http://192.168.1.3:8011
   ws-aggregator-url: ws://localhost:8080/aggregator
-  max-messages: 5
+  max-messages: 10        # SQS maximum per receive call
   wait-time-seconds: 20
+  poller-threads: 8       # number of concurrent SQS poller threads
   aws-region: us-east-1
   registration-service-base-url: http://localhost:8084
+  # isaac-sim-mock: true
 
 logging:
   level:
     worker3: DEBUG
     software.amazon.awssdk: WARN
+
+# 179895363911 566057504401
