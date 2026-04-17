@@ -44,7 +44,7 @@ See architecture diagram: `vla_inference_cache_diagram.png`
 
 ![OpenVLA inference caching before vs after](OpenVLA%20inference%20caching_arch.png)
 
-**EC2 cache placement and horizontal scaling:**
+**EC2 cache placement and horizontal scaling(future optimization):**
 
 ![Redis EC2 cache hit/miss and scaling diagram](redis_ec2_cache_hit_miss_scaling_polished.png)
 
