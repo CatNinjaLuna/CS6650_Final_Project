@@ -247,7 +247,7 @@ This means `--threads 4` opens 4 WebSocket connections and 4 SQS sender sub-thre
 cd stress-test
 
 # Smoke test — 1 client, 100 messages, rate-limited to 5 msg/s
-python e2e_client.py --threads 1 --messages 100 --rate 5
+python e2e_client.py --threads 10 --messages 100 --rate 100
 
 # Default run: sweep 1, 2, 4, 8 clients × 500,000 messages
 python e2e_client.py
@@ -266,7 +266,14 @@ python e2e_client.py --threads 1 2 4 --output e2e_results.csv
 python e2e_client.py \
     --ws-url ws://127.0.0.1:8082/ws/results \
     --queue-url https://sqs.us-east-1.amazonaws.com/179895363911/roboparam-queue
+
+python e2e_client.py --threads 1 2 4 8 --messages 50 --rate 2 --plot results.png --output e2e_results.csv
 ```
+
+aws sqs purge-queue \
+  --queue-url https://sqs.us-east-1.amazonaws.com/566057504401/roboparam-queue \
+  --region us-east-1
+
 
 ### Options
 

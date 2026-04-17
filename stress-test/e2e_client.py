@@ -74,11 +74,19 @@ except ImportError:
     print("Missing dependency: websockets\n  pip install websockets")
     sys.exit(1)
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")          # non-interactive backend — works without a display
+    import matplotlib.pyplot as plt
+    _MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    _MATPLOTLIB_AVAILABLE = False
+
 
 # ──────────────────────────────────────────────────────────────────
 # Defaults
 # ──────────────────────────────────────────────────────────────────
-DEFAULT_QUEUE_URL  = "https://sqs.us-east-1.amazonaws.com/179895363911/roboparam-queue"
+DEFAULT_QUEUE_URL  = "https://sqs.us-east-1.amazonaws.com/566057504401/roboparam-queue"
 DEFAULT_REGION     = "us-east-1"
 DEFAULT_WS_URL     = "ws://localhost:8082/ws/results"
 DEFAULT_TOTAL_MSGS = 500_000
@@ -723,6 +731,77 @@ def write_csv(results: List[RunResult], path: str) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Graphs
+# ──────────────────────────────────────────────────────────────────
+def plot_graphs(results: List[RunResult], output_path: str) -> None:
+    """
+    Saves a figure with three subplots:
+      1. Number of clients vs delivery rate (%)
+      2. Number of clients vs RTT — mean, p50, p95, p99 (ms)
+      3. Number of clients vs matched messages
+    """
+    if not _MATPLOTLIB_AVAILABLE:
+        print("\nmatplotlib not installed — skipping graphs.  pip install matplotlib")
+        return
+
+    valid = [r for r in results if r.total_sent > 0]
+    if len(valid) < 2:
+        print("\nNeed at least 2 data points to plot graphs — skipping.")
+        return
+
+    clients      = [r.num_clients                                         for r in valid]
+    delivery_pct = [len(r.all_rtts) / r.total_sent * 100                  for r in valid]
+    matched      = [len(r.all_rtts)                                        for r in valid]
+    rtt_mean     = [statistics.mean(r.all_rtts)  if r.all_rtts else 0.0   for r in valid]
+    rtt_p50      = [r.percentile(r.all_rtts, 50) if r.all_rtts else 0.0   for r in valid]
+    rtt_p95      = [r.percentile(r.all_rtts, 95) if r.all_rtts else 0.0   for r in valid]
+    rtt_p99      = [r.percentile(r.all_rtts, 99) if r.all_rtts else 0.0   for r in valid]
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle("RoboParam E2E Stress Test — Scaling Behaviour", fontsize=13)
+
+    # ── 1. Delivery rate ─────────────────────────────────────────
+    ax = axes[0]
+    ax.plot(clients, delivery_pct, marker="o", color="steelblue", linewidth=2)
+    ax.set_title("Delivery Rate")
+    ax.set_xlabel("Number of Clients")
+    ax.set_ylabel("Delivery Rate (%)")
+    ax.set_ylim(0, 105)
+    ax.axhline(y=100, color="green", linestyle="--", linewidth=0.8, alpha=0.6)
+    ax.set_xticks(clients)
+    ax.grid(True, alpha=0.3)
+
+    # ── 2. RTT ───────────────────────────────────────────────────
+    ax = axes[1]
+    ax.plot(clients, rtt_mean, marker="o", label="mean",  linewidth=2)
+    ax.plot(clients, rtt_p50,  marker="s", label="p50",   linewidth=2, linestyle="--")
+    ax.plot(clients, rtt_p95,  marker="^", label="p95",   linewidth=2, linestyle="--")
+    ax.plot(clients, rtt_p99,  marker="D", label="p99",   linewidth=2, linestyle=":")
+    ax.set_title("Round-Trip Latency")
+    ax.set_xlabel("Number of Clients")
+    ax.set_ylabel("RTT (ms)")
+    ax.legend()
+    ax.set_xticks(clients)
+    ax.grid(True, alpha=0.3)
+
+    # ── 3. Matched messages ───────────────────────────────────────
+    ax = axes[2]
+    ax.bar(clients, matched, color="darkorange", width=0.6 * min(
+        clients[i+1] - clients[i] for i in range(len(clients)-1)
+    ) if len(clients) > 1 else 0.8)
+    ax.set_title("Matched Messages")
+    ax.set_xlabel("Number of Clients")
+    ax.set_ylabel("Messages Matched (own deviceId)")
+    ax.set_xticks(clients)
+    ax.grid(True, axis="y", alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\nGraphs saved to: {output_path}")
+
+
+# ──────────────────────────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────────────────────────
 def main() -> None:
@@ -752,6 +831,11 @@ def main() -> None:
         help="Seconds to wait after all sends complete for the pipeline to drain",
     )
     parser.add_argument("--output", default=None, metavar="FILE.csv")
+    parser.add_argument(
+        "--plot", default=None, metavar="FILE.png",
+        help="Save scaling graphs to this PNG file "
+             "(requires matplotlib: pip install matplotlib)",
+    )
     args = parser.parse_args()
 
     # Verify AWS credentials
@@ -789,6 +873,9 @@ def main() -> None:
 
     if args.output:
         write_csv(all_results, args.output)
+
+    if args.plot:
+        plot_graphs(all_results, args.plot)
 
 
 if __name__ == "__main__":
