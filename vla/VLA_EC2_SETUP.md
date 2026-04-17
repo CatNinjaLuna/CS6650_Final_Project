@@ -76,11 +76,12 @@ aws ec2 start-instances --instance-ids i-0e08e1a63fc48056e --region us-east-1
 ## Environment Setup (run once on EC2)
 
 ```bash
-# Install conda
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh -b
-~/miniconda3/bin/conda init bash
-source ~/.bashrc
+# Accept conda ToS (required on Amazon Linux 2023)
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
+# Install build tools
+sudo yum install -y gcc gcc-c++ make
 
 # Create env
 conda create -n openvla python=3.10 -y
@@ -90,6 +91,20 @@ conda activate openvla
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 pip install transformers==4.41.2 tokenizers==0.19.1 accelerate==0.30.1 \
     bitsandbytes==0.43.1 pillow boto3 timm==0.9.16 peft huggingface_hub fastapi uvicorn requests
+```
+
+---
+
+## NVIDIA Driver Setup (run once on EC2)
+
+```bash
+sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/amzn2023/x86_64/cuda-amzn2023.repo
+sudo dnf clean all
+sudo dnf install -y nvidia-driver nvidia-driver-cuda
+sudo reboot
+
+# After reboot — verify GPU is visible
+nvidia-smi
 ```
 
 ---
@@ -107,6 +122,9 @@ huggingface_hub.snapshot_download(
 )
 print('done')
 "
+
+# Verify size
+du -sh ~/openvla-7b/   # expect ~15G
 ```
 
 Model size: ~15GB. Takes ~5-10 min on EC2 (high bandwidth).
@@ -137,6 +155,14 @@ JOINT_LIMITS = [
     (-0.0175,  3.7525),   # joint 6
     (-2.8973,  2.8973),   # joint 7
 ]
+```
+
+### Deploy to EC2
+```bash
+# From Mac — copy script to EC2
+scp -i ~/CS6650/openvla-key.pem \
+  ~/CS6650/vla-inference/vla_inference.py \
+  ec2-user@<public-ip>:~/
 ```
 
 ### Run the service
@@ -191,8 +217,16 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
 ## Milestone Checklist
 
 - [x] Camera endpoint live at `http://192.168.1.3:8012/camera`
-  - `sim_camera.py` running in Isaac Sim Script Editor on port 8012
+  - `sim_camera.py` running in Isaac Sim Script Editor on port 8012, alongside `sim_state.py` (port 8011) with no interference
   - Verified: `curl http://192.168.1.3:8012/camera` returns base64 JPEG
+
+  ![Camera endpoint verified](sim_camera_endpoint_verified.png)
+
+- [x] Both Isaac Sim servers running concurrently
+  - `sim_state.py` (port 8011, arm control) and `sim_camera.py` (port 8012, camera feed) running simultaneously
+  - Franka Panda, RedBox, and GreenBox visible in scene at 58 FPS
+
+  ![Both servers running](sim_both_servers_running.png)
 
 - [x] EC2 g4dn.xlarge launched (`i-0e08e1a63fc48056e`)
   ```bash
@@ -212,61 +246,33 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
   ```
 
 - [x] conda env + dependencies installed on EC2
-  ```bash
-  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-  sudo yum install -y gcc gcc-c++ make
-  conda create -n openvla python=3.10 -y
-  conda activate openvla
-  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-  pip install transformers==4.41.2 tokenizers==0.19.1 accelerate==0.30.1 \
-      bitsandbytes==0.43.1 pillow boto3 timm==0.9.16 peft huggingface_hub fastapi uvicorn requests
-  ```
+  - See [Environment Setup](#environment-setup-run-once-on-ec2) and [NVIDIA Driver Setup](#nvidia-driver-setup-run-once-on-ec2) sections above
 
 - [x] NVIDIA drivers installed on EC2
   ```bash
-  sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/amzn2023/x86_64/cuda-amzn2023.repo
-  sudo dnf clean all
-  sudo dnf install -y nvidia-driver nvidia-driver-cuda
-  sudo reboot
-  # after reboot verify:
-  nvidia-smi
+  nvidia-smi   # verified GPU visible after reboot
   ```
 
 - [x] OpenVLA-7b model downloaded on EC2 (~15GB verified)
   ```bash
-  conda activate openvla
-  python -c "
-  import huggingface_hub
-  huggingface_hub.snapshot_download(
-      'openvla/openvla-7b',
-      local_dir='./openvla-7b',
-      ignore_patterns=['*.msgpack', '*.h5']
-  )
-  print('done')
-  "
-  # verify: du -sh ~/openvla-7b/ → 15G
+  du -sh ~/openvla-7b/   # → 15G
   ```
 
-- [ ] `vla_inference.py` deployed and running
+- [x] `vla_inference.py` deployed and running on EC2
   ```bash
-  # From Mac — copy script to EC2
-  scp -i ~/CS6650/openvla-key.pem \
-    ~/CS6650/vla-inference/vla_inference.py \
-    ec2-user@<public-ip>:~/
-
-  # On EC2 — run it
+  # On EC2
   conda activate openvla
   python vla_inference.py
   ```
 
-- [ ] End-to-end test: curl → OpenVLA → SQS → worker3 → Isaac Sim arm moves
-  ```bash
-  curl -X POST http://<ec2-public-ip>:8090/infer \
-    -H "Content-Type: application/json" \
-    -d '{"instruction": "push the red block forward"}'
-  ```
+- [x] End-to-end pipeline verified: `curl → EC2 /infer → Isaac Sim /camera → OpenVLA → SQS → worker3 → Isaac Sim`
+  - Inference latency ~1200–2300ms (observed from `/infer` response `latency_ms` field across multiple requests)
+  - Isaac Sim receiving joint angle commands confirmed in console
 
-- [ ] Latency numbers collected
+  ![End-to-end success](vla_inference_end_to_end_success.png)
+
+- [ ] Delta scaling — OpenVLA joint angle outputs are normalized deltas; scaling needed for visible arm motion
+
+- [ ] Latency instrumentation across full pipeline
   - Instrument: camera pull → inference → SQS publish → worker3 → Isaac Sim response
   - Surface in frontend and showcase presentation
