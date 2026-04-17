@@ -38,6 +38,20 @@ See architecture diagram: `vla_inference_cache_diagram.png`
 
 ---
 
+## Why Redis on EC2 (not Mac)
+
+Running Redis on the same EC2 instance as the inference service is a deliberate architectural choice:
+
+**Latency:** A cache lookup that crosses a network boundary (EC2 → Mac → EC2) adds ~20–50ms of round-trip overhead — partially negating the benefit of caching. With Redis on EC2, a cache hit is a localhost call (~0.1–1ms).
+
+**Colocation principle:** The cache lives next to the compute it serves. This is standard practice in distributed systems — cache and service share a failure domain, so a network partition between machines cannot cause cache unavailability while inference is still running.
+
+**Horizontal scalability:** If the inference service were scaled to multiple EC2 instances (e.g. behind a load balancer), a shared Redis on EC2 (or a dedicated Redis node) means all instances share the same cache. Running Redis on a developer's laptop would make the cache instance-local and break cache sharing across replicas.
+
+**Separation of concerns:** The Mac handles Spring Boot services, Redis pub/sub, and the frontend. The EC2 handles GPU inference and inference-layer caching. Each machine owns its layer — no cross-machine state dependencies for the inference path.
+
+---
+
 ## Redis Setup on EC2 (run once)
 
 Amazon Linux 2023 does not have Redis in the default yum repo. Install via conda:
