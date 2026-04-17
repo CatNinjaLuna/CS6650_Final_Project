@@ -135,13 +135,17 @@ Model size: ~15GB. Takes ~5-10 min on EC2 (high bandwidth).
 
 Exposes a FastAPI endpoint at `POST /infer`. Accepts a JSON body with an `instruction` field.
 
+Source: [`vla/vla_inference.py`](vla_inference.py)
+
 **Inference loop:**
 1. `GET http://192.168.1.3:8012/camera` → base64 JPEG
 2. Decode → PIL Image
-3. Run OpenVLA inference (image + instruction) → 7-DOF joint angles
-4. Clamp to safe Franka Panda limits
+3. Run OpenVLA inference (image + instruction) → 7-DOF normalized deltas
+4. Scale by `DELTA_SCALE` (default `0.5`) for visible arm motion, then clamp to Franka Panda limits
 5. Publish to SQS `roboparam-queue`
-6. Return latency + joint angles to caller
+6. Return latency, raw angles, and scaled angles to caller
+
+**Tuning `DELTA_SCALE`:** Start at `0.5`. If arm barely moves, increase to `1.0` or `2.0`. If motion is too violent, drop to `0.2`. The response includes `raw_angles` for reference.
 
 ### Joint Angle Safety Limits (Franka Panda)
 
@@ -161,7 +165,7 @@ JOINT_LIMITS = [
 ```bash
 # From Mac — copy script to EC2
 scp -i ~/CS6650/openvla-key.pem \
-  ~/CS6650/vla-inference/vla_inference.py \
+  ~/CS6650/CS6650_Final_Project/vla/vla_inference.py \
   ec2-user@<public-ip>:~/
 ```
 
@@ -183,7 +187,9 @@ curl -X POST http://<ec2-public-ip>:8090/infer \
 {
   "status": "ok",
   "instruction": "push the red block forward",
+  "raw_angles": [0.24, -0.86, 0.16, -3.84, 0.06, 3.08, 1.42],
   "joint_angles": [0.12, -0.43, 0.08, -1.92, 0.03, 1.54, 0.71],
+  "delta_scale": 0.5,
   "latency_ms": 1842.5
 }
 ```
@@ -272,17 +278,10 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
   ![End-to-end success](vla_inference_end_to_end_success.png)
 
 - [ ] Delta scaling — OpenVLA joint angle outputs are normalized deltas; scaling needed for visible arm motion
+  - **Known issue:** Pipeline is fully connected (camera → OpenVLA → SQS → worker3 → `/roboparam/update` 200 OK) but arm shows no visible movement in Isaac Sim viewport
+  - Root cause under investigation: `sim_state.py` joint drive uses `STIFFNESS=1000, DAMPING=200` with USD PhysX DriveAPI — may require minimum delta threshold or physics timestep alignment to produce visible motion. Degrees/radians unit mismatch also investigated (OpenVLA outputs radians; `sim_state.py` preset joints use degrees).
+  - Next steps: verify unit convention in `apply_joints()`, test with manually crafted large joint angle payload to confirm `/roboparam/update` can produce visible motion independently of VLA
 
 - [ ] Latency instrumentation across full pipeline
   - Instrument: camera pull → inference → SQS publish → worker3 → Isaac Sim response
   - Surface in frontend and showcase presentation
-
----
-
-## Git
-
-```bash
-git add vla/VLA_EC2_SETUP.md vla/sim_camera_endpoint_verified.png vla/sim_both_servers_running.png vla/vla_inference_end_to_end_success.png
-git commit -m "update VLA EC2 setup guide: mark milestones complete, add screenshots"
-git push origin main
-```
