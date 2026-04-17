@@ -125,13 +125,21 @@ The response includes a `cache` field: `"hit"` or `"miss"`, and `latency_ms` for
 
 ## Results
 
+**Cache miss** occurs on the first request for a given instruction — Redis has no stored result, so the full inference pipeline runs: camera frame capture → OpenVLA GPU inference → joint angle computation. This is the expensive path.
+
+**Cache hit** occurs on any subsequent request with the same instruction — Redis returns the previously computed joint angles instantly, bypassing the GPU entirely. This is the fast path.
+
+In a demo or real-time robot control scenario, the same 2–3 instructions are sent repeatedly (e.g. "push the red block forward"). After the first request warms the cache, all subsequent identical instructions are served from Redis at near-zero cost. This is the core motivation for the optimization.
+
 | Request | Cache status | Latency |
 |---|---|---|
-| First (cold) | MISS | ~TBD ms |
-| Second+ (warm) | HIT | ~TBD ms |
-| Improvement | — | ~TBD% |
+| First (cold) | MISS | 2172.33ms |
+| Second+ (warm) | HIT | 19.27ms |
+| Improvement | — | ~99.1% |
 
-*Screenshots and screen recording: `vla_cache_miss.png`, `vla_cache_hit.png`*
+A 99.1% latency reduction on repeated instructions demonstrates that instruction-level caching is highly effective for this workload. The remaining ~19ms on cache hits reflects Redis lookup + SQS publish time, not GPU inference.
+
+*Screenshot: `vla_cache_miss_and_hit.png`*
 
 ---
 
