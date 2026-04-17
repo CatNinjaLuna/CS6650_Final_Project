@@ -191,11 +191,71 @@ Both servers run as daemon threads inside Isaac Sim Script Editor (`sim_state.py
 ## Milestone Checklist
 
 - [x] Camera endpoint live at `http://192.168.1.3:8012/camera`
+    - `sim_camera.py` running in Isaac Sim Script Editor on port 8012
+    - Verified: `curl http://192.168.1.3:8012/camera` returns base64 JPEG
+
 - [x] EC2 g4dn.xlarge launched (`i-0e08e1a63fc48056e`)
+  ```bash
+  aws ec2 start-instances --instance-ids i-0e08e1a63fc48056e --region us-east-1
+  ```
+
 - [x] Port 8090 open in security group
+  ```bash
+  aws ec2 authorize-security-group-ingress \
+    --group-id sg-04e3d077c5be1f4fd \
+    --protocol tcp --port 8090 --cidr 0.0.0.0/0 --region us-east-1
+  ```
+
 - [x] SSH access confirmed
-- [ ] conda env + dependencies installed on EC2
+  ```bash
+  ssh -i ~/CS6650/openvla-key.pem ec2-user@3.81.26.124
+  ```
+
+- [x] conda env + dependencies installed on EC2
+  ```bash
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+  sudo yum install -y gcc gcc-c++ make
+  conda create -n openvla python=3.10 -y
+  conda activate openvla
+  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+  pip install transformers==4.41.2 tokenizers==0.19.1 accelerate==0.30.1 \
+      bitsandbytes==0.43.1 pillow boto3 timm==0.9.16 peft huggingface_hub fastapi uvicorn requests
+  ```
+
 - [ ] OpenVLA-7b model downloaded on EC2
+  ```bash
+  conda activate openvla
+  python -c "
+  import huggingface_hub
+  huggingface_hub.snapshot_download(
+      'openvla/openvla-7b',
+      local_dir='./openvla-7b',
+      ignore_patterns=['*.msgpack', '*.h5']
+  )
+  print('done')
+  "
+  ```
+
 - [ ] `vla_inference.py` deployed and running
+  ```bash
+  # From Mac — copy script to EC2
+  scp -i ~/CS6650/openvla-key.pem \
+    ~/CS6650/vla-inference/vla_inference.py \
+    ec2-user@<public-ip>:~/
+
+  # On EC2 — run it
+  conda activate openvla
+  python vla_inference.py
+  ```
+
 - [ ] End-to-end test: curl → OpenVLA → SQS → worker3 → Isaac Sim arm moves
+  ```bash
+  curl -X POST http://<ec2-public-ip>:8090/infer \
+    -H "Content-Type: application/json" \
+    -d '{"instruction": "push the red block forward"}'
+  ```
+
 - [ ] Latency numbers collected
+    - Instrument: camera pull → inference → SQS publish → worker3 → Isaac Sim response
+    - Surface in frontend and showcase presentation
