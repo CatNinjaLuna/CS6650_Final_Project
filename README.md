@@ -494,6 +494,22 @@ Full pipeline verified: **SQS → worker3 → Isaac Sim → Redis → aggregator
 | Horizontal scaling (3x worker3) | ✅ Throughput ↑ ~3x (110.6 → 329.3 req/sec), latency maintained |
 | Concurrent WebSocket broadcast | ✅ 6 simultaneous clients received broadcast concurrently with no blocking |
 
+### SQS Long-Polling — Before vs. After
+
+**Baseline (short-poll):**
+![Short-poll baseline](docs/screenshots/short-poll-baseline.png)
+
+**Optimized (long-poll):**
+![Long-poll optimized](docs/screenshots/long-poll-optimized.png)
+
+### Horizontal Scaling — 3x worker3 Instances
+
+![Horizontal scaling](docs/screenshots/horizontal-scaling.png)
+
+### Concurrent WebSocket Broadcast — 6 Clients
+
+![WebSocket concurrent broadcast](docs/screenshots/websocket-concurrent.png)
+
 ### Isaac Sim — Action Execution (push_red / push_green / reset)
 
 Direct REST calls to the Isaac Sim action endpoint returning HTTP 200 with all 7 joint values.
