@@ -1,4 +1,4 @@
-# RoboParam — Distributed Robot Parameter Pipeline with VLA Inference
+# Robo — Distributed Robot Parameter Pipeline with VLA Inference
 
 CS6650 Final Project · Northeastern University
 
@@ -10,7 +10,7 @@ Advisor: Prof. Vishal Rajpal
 
 ## Overview
 
-RoboParam is a distributed system for real-time robotic arm control and VLA (Vision-Language-Action) inference. Action commands are queued via AWS SQS, consumed by a Spring Boot worker that forwards them to an NVIDIA Isaac Sim instance running a Franka Panda arm, and simulation results are streamed to a React + Three.js frontend via WebSocket.
+Robo is a distributed system for real-time robotic arm control and VLA (Vision-Language-Action) inference. Action commands are queued via AWS SQS, consumed by a Spring Boot worker that forwards them to an NVIDIA Isaac Sim instance running a Franka Panda arm, and simulation results are streamed to a React + Three.js frontend via WebSocket.
 
 The VLA inference layer runs OpenVLA-7b on an AWS EC2 GPU instance, taking live camera frames from Isaac Sim and producing 7-DOF joint angle commands. An instruction-level Redis cache reduces repeated inference latency by 99.1%.
 
@@ -129,10 +129,10 @@ Polling the aggregator for new results would introduce latency and unnecessary l
 OpenVLA inference costs ~1000–2300ms per request. In a demo or classroom setting, the same 2–3 instructions are sent repeatedly. Caching results by instruction string on the same EC2 instance as the inference service gives ~1ms cache lookup latency (localhost), reducing repeat request latency to ~19ms — a 99.1% reduction. A shared Redis cache also supports horizontal scaling: multiple inference instances share the same cache, eliminating redundant GPU compute across replicas.
 
 ### Scalability
-- **worker3 is stateless** — multiple instances can poll the same SQS queue concurrently; visibility timeout (30s) prevents duplicate processing
+- **worker3 is stateless** — multiple instances can poll the same SQS queue concurrently; visibility timeout (30s) prevents duplicate processing. Measured: 3 instances → 329.3 req/sec throughput (↑ ~3x vs single instance at 110.6 req/sec), max latency maintained at ~128ms
 - **SQS as backpressure** — absorbs command bursts from concurrent users without overwhelming Isaac Sim; queue depth grows under load and drains as worker3 processes
 - **Redis pub/sub decoupling** — worker3 and aggregator are fully independent; either can be restarted without affecting the other
-- **Aggregator fan-out** — a single sim result is broadcast to N connected clients simultaneously; adding more clients does not increase per-update work
+- **Aggregator fan-out** — a single sim result is broadcast to N connected clients simultaneously via concurrent thread pool (`ExecutorService`); slow clients do not block others. Verified with 6 simultaneous WebSocket clients receiving broadcasts concurrently
 - **VLA inference cache** — repeated instructions bypass GPU inference entirely; supports horizontal scaling of inference instances via shared cache
 
 ### Fault Tolerance
@@ -147,7 +147,7 @@ OpenVLA inference costs ~1000–2300ms per request. In a demo or classroom setti
 - **Last write wins at Isaac Sim** — concurrent commands from multiple users are queued and applied sequentially; the arm reflects the most recently processed command
 
 ### Latency
-- SQS long-poll (`waitTimeSeconds=20`) eliminates busy-waiting
+- SQS long-poll (`waitTimeSeconds=20`) eliminates busy-waiting. Measured: max latency ↓ 69% (131ms → 41ms), std deviation ↓ 65% (4.19 → 1.46), throughput maintained at ~110 req/sec
 - Measured end-to-end latency: **~33–69ms** (SQS receive → Isaac Sim response → Redis publish)
 - VLA inference latency: **~963–2289ms** (cache miss, full GPU inference) / **~19ms** (cache hit, Redis lookup)
 
@@ -341,7 +341,7 @@ Frontend starts on port `3000`.
 ### 6. Start Isaac Sim (Windows)
 
 1. Open Isaac Sim, load `roboparam_scene.usd`
-2. In Script Editor, run `sim_state.py` — wait for "RoboParam endpoint ready"
+2. In Script Editor, run `sim_state.py` — wait for "Robo endpoint ready"
 3. Open a new Script Editor tab, run `sim_camera.py` — wait for "[sim_camera] Camera server running"
 4. Hit **Play**
 
@@ -490,6 +490,9 @@ Full pipeline verified: **SQS → worker3 → Isaac Sim → Redis → aggregator
 | VLA end-to-end | ✅ curl → EC2 /infer → Isaac Sim /camera → OpenVLA → SQS → worker3 → Isaac Sim |
 | VLA cache miss | ✅ Full inference latency: ~963–2289ms |
 | VLA cache hit | ✅ Redis cache hit latency: ~19ms (99.1% reduction) |
+| SQS long-poll optimization | ✅ Max latency ↓ 69% (131ms → 41ms), std deviation ↓ 65% |
+| Horizontal scaling (3x worker3) | ✅ Throughput ↑ ~3x (110.6 → 329.3 req/sec), latency maintained |
+| Concurrent WebSocket broadcast | ✅ 6 simultaneous clients received broadcast concurrently with no blocking |
 
 ### Isaac Sim — Action Execution (push_red / push_green / reset)
 
