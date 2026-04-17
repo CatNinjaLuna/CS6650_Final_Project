@@ -530,6 +530,18 @@ First request runs full OpenVLA GPU inference (cache miss, ~2172ms). Second iden
 
 ---
 
+## Stress Testing
+
+Three scripts covering different pipeline segments — see [`/stress-test/README.md`](./stress-test/README.md) for full usage, options, and sample output.
+
+| Script | What it tests |
+|---|---|
+| `stress_test.py` | Aggregator broadcast capacity — injects directly into Redis, bypasses SQS and worker3 |
+| `vla_stress_test.py` | SQS + worker3 throughput — publishes joint angle commands directly to SQS |
+| `e2e_client.py` | Full round-trip latency — each simulated user has its own WebSocket connection and SQS sender |
+
+---
+
 ## Future Optimizations
 
 | Optimization | Description | Expected Impact |
