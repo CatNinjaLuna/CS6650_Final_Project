@@ -40,12 +40,21 @@ See architecture diagram: `vla_inference_cache_diagram.png`
 
 ## Redis Setup on EC2 (run once)
 
+Amazon Linux 2023 does not have Redis in the default yum repo. Install via conda:
+
 ```bash
-sudo yum install -y redis
-sudo systemctl start redis
-sudo systemctl enable redis
+conda activate openvla
+pip install redis
+conda install -c conda-forge redis-server -y
+```
+
+Start the server:
+```bash
+redis-server --daemonize yes
 redis-cli ping   # should return PONG
 ```
+
+Note: a memory overcommit warning may appear — it is harmless for this use case.
 
 ---
 
