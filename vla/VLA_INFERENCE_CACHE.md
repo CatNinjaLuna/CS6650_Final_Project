@@ -38,6 +38,18 @@ See architecture diagram: `vla_inference_cache_diagram.png`
 
 ---
 
+## Architecture
+
+**Before vs. after — cache hit/miss flow:**
+
+![OpenVLA inference caching before vs after](OpenVLA%20inference%20caching_arch.png)
+
+**EC2 cache placement and horizontal scaling:**
+
+![Redis EC2 cache hit/miss and scaling diagram](redis_ec2_cache_hit_miss_scaling.png)
+
+---
+
 ## Why Redis on EC2 (not Mac)
 
 Running Redis on the same EC2 instance as the inference service is a deliberate architectural choice:
