@@ -46,3 +46,5 @@ application-local.yml
 isaac-sim/*
 !isaac-sim/Gantt.png
 !isaac-sim/.gitkeep
+
+__pycache__/
