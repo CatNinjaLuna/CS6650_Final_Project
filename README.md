@@ -12,6 +12,8 @@ Advisor: Prof. Vishal Rajpal
 
 RoboParam is a distributed system for real-time robotic arm control and VLA (Vision-Language-Action) inference. Action commands are queued via AWS SQS, consumed by a Spring Boot worker that forwards them to an NVIDIA Isaac Sim instance running a Franka Panda arm, and simulation results are streamed to a React + Three.js frontend via WebSocket.
 
+The VLA inference layer runs OpenVLA-7b on an AWS EC2 GPU instance, taking live camera frames from Isaac Sim and producing 7-DOF joint angle commands. An instruction-level Redis cache reduces repeated inference latency by 99.1%.
+
 The core distributed systems design decision is **SQS as a decoupling layer** — multiple concurrent users can enqueue commands simultaneously without blocking each other or the simulation worker. The number of active WebSocket sessions corresponds directly to the number of concurrent users the system supports.
 
 ---
@@ -19,6 +21,17 @@ The core distributed systems design decision is **SQS as a decoupling layer** �
 ## Architecture
 
 ```
+curl / frontend
+    |
+    | POST /infer (language instruction)
+    ↓
+EC2 g4dn.xlarge (OpenVLA inference)
+    |── Redis cache check (localhost:6379)
+    |   ├── HIT  → return cached joint angles (~19ms)
+    |   └── MISS → run OpenVLA inference (~1000–2300ms) → write to cache
+    |
+    | joint angles → SQS
+    ↓
 Client (React + Three.js)
     |                       ↑
     | HTTP POST (action)    | WebSocket (receive-only)
@@ -32,8 +45,9 @@ worker3 (port 8083) ────────┘
     |
     | REST POST
     ↓
-Isaac Sim @ 192.168.1.3:8011
-(see /isaac-sim for setup)
+Isaac Sim @ 192.168.1.3
+    ├── sim_state.py  — port 8011 — arm control + block actions
+    └── sim_camera.py — port 8012 — live JPEG camera feed
 ```
 
 **Critical design points:**
@@ -41,19 +55,29 @@ Isaac Sim @ 192.168.1.3:8011
 - The **client WebSocket is receive-only** — results are pushed from the aggregator to clients. Clients never publish through WebSocket.
 - All **commands flow outbound via SQS only** — the client sends an HTTP POST which enqueues to SQS, never directly to worker3 or Isaac Sim.
 - **worker3 is the only SQS consumer** — it polls, forwards to Isaac Sim via REST, then publishes the result to Redis.
-- **Redis is used as pub/sub only** — not as a key-value store or database. There is no read operation to query. Messages are pushed to subscribers on arrival and do not persist.
+- **Redis is used as pub/sub only** on the Mac side — not as a key-value store or database. There is no read operation to query. Messages are pushed to subscribers on arrival and do not persist.
+- **Redis on EC2** is used as an inference cache only — keyed by instruction string, stores joint angle results from OpenVLA.
 - The **aggregator subscribes to Redis** and fans results out to all connected WebSocket sessions simultaneously — O(1) work per update regardless of client count.
 - **Registration service** runs on port `8084` and manages lab/device metadata in memory — it is separate from the simulation pipeline and not related to Redis.
+- **Isaac Sim runs two servers simultaneously** — `sim_state.py` (port 8011, arm control) and `sim_camera.py` (port 8012, camera feed) — both as daemon threads in Script Editor.
 
 ---
 
 ## Message Flow
 
+### Fixed action pipeline (demo)
 ```
-Client → SQS → worker3 → Isaac Sim → worker3 → Redis → Aggregator → Client
+Client → SQS → worker3 → Isaac Sim (port 8011) → worker3 → Redis → Aggregator → Client
 ```
 
-Step by step:
+### VLA inference pipeline
+```
+curl/frontend → EC2 /infer → Redis cache check
+    ├── HIT  → SQS → worker3 → Isaac Sim → arm executes
+    └── MISS → OpenVLA inference → Redis write → SQS → worker3 → Isaac Sim → arm executes
+```
+
+Step by step (fixed action):
 1. Client sends an HTTP POST with `{"action": "push_red"}` which is enqueued to SQS
 2. worker3 polls SQS (long-poll, 20s wait), deserializes the message
 3. worker3 calls Isaac Sim REST endpoint — arm executes the action
@@ -72,8 +96,10 @@ Step by step:
 | `aggregator` | `8082` | Spring Boot WebSocket aggregator — subscribes to Redis pub/sub, fans out to all frontend clients | ✅ Running |
 | `frontend` | `3000` | React + Three.js 3D URDF visualization of Franka Panda arm | ✅ Running |
 | `registration-service` | `8084` | Manages lab and device metadata in memory — validates device existence for worker3 | ✅ Running |
-| `vla` | — | OpenVLA inference server — produces 7-DOF joint deltas from camera observations | stretch goal — see [`/vla`](./vla) |
-| Isaac Sim | `8011` | NVIDIA Isaac Sim running Franka Panda arm (Windows, NVIDIA GPU required) | ✅ Running — see [`/isaac-sim`](./isaac-sim) |
+| `vla_inference.py` | `8090` | OpenVLA inference server on EC2 — produces 7-DOF joint angles from live Isaac Sim camera feed | ✅ Running — see [`/vla`](./vla) |
+| `vla_inference_cached.py` | `8090` | OpenVLA inference server with Redis instruction-level caching — 99.1% latency reduction on repeated instructions | ✅ Running — see [`/vla`](./vla) |
+| Isaac Sim `sim_state.py` | `8011` | NVIDIA Isaac Sim — Franka Panda arm control + block actions (Windows, RTX 5090) | ✅ Running — see [`/isaac-sim`](./isaac-sim) |
+| Isaac Sim `sim_camera.py` | `8012` | NVIDIA Isaac Sim — live JPEG camera feed for VLA inference | ✅ Running — see [`/isaac-sim`](./isaac-sim) |
 
 ---
 
@@ -81,11 +107,13 @@ Step by step:
 
 - **Backend:** Java 17, Spring Boot 3.2, AWS SDK v2
 - **Queue:** AWS SQS (long-poll, Standard queue)
-- **Pub/Sub:** Redis 7 (Docker) — pub/sub only, not used as a database
-- **Simulation:** NVIDIA Isaac Sim 5.x (Windows, RTX 5090) — see [`/isaac-sim`](./isaac-sim)
-- **VLA Model:** OpenVLA (HuggingFace) — 7-DOF joint delta inference from camera feed
+- **Pub/Sub:** Redis 7 (Docker, Mac) — pub/sub only, not used as a database
+- **Inference Cache:** Redis (conda, EC2) — instruction-level cache for OpenVLA results
+- **Simulation:** NVIDIA Isaac Sim 5.1 (Windows, RTX 5090) — see [`/isaac-sim`](./isaac-sim)
+- **VLA Model:** OpenVLA-7b (HuggingFace) — 7-DOF joint angle inference from live camera feed
+- **Inference Compute:** AWS EC2 g4dn.xlarge (T4 GPU, 16GB VRAM)
 - **Frontend:** React, Three.js
-- **Cloud:** AWS (SQS, us-east-1)
+- **Cloud:** AWS (SQS, EC2, us-east-1)
 
 ---
 
@@ -97,16 +125,21 @@ Direct REST from client → Isaac Sim would block — one slow client blocks all
 ### Why Redis pub/sub over polling?
 Polling the aggregator for new results would introduce latency and unnecessary load on Redis. Pub/sub pushes results to the aggregator the instant worker3 publishes — no polling delay, no wasted queries.
 
+### Why Redis cache on EC2 for VLA inference?
+OpenVLA inference costs ~1000–2300ms per request. In a demo or classroom setting, the same 2–3 instructions are sent repeatedly. Caching results by instruction string on the same EC2 instance as the inference service gives ~1ms cache lookup latency (localhost), reducing repeat request latency to ~19ms — a 99.1% reduction. A shared Redis cache also supports horizontal scaling: multiple inference instances share the same cache, eliminating redundant GPU compute across replicas.
+
 ### Scalability
 - **worker3 is stateless** — multiple instances can poll the same SQS queue concurrently; visibility timeout (30s) prevents duplicate processing
 - **SQS as backpressure** — absorbs command bursts from concurrent users without overwhelming Isaac Sim; queue depth grows under load and drains as worker3 processes
 - **Redis pub/sub decoupling** — worker3 and aggregator are fully independent; either can be restarted without affecting the other
 - **Aggregator fan-out** — a single sim result is broadcast to N connected clients simultaneously; adding more clients does not increase per-update work
+- **VLA inference cache** — repeated instructions bypass GPU inference entirely; supports horizontal scaling of inference instances via shared cache
 
 ### Fault Tolerance
 - **At-least-once delivery** — worker3 only deletes an SQS message after a successful Isaac Sim response; on failure, the message becomes visible again after the 30s visibility timeout and is retried automatically
 - **Isaac Sim isolation** — worker3 handles Isaac Sim connection errors gracefully without crashing; failed messages are logged and retried via SQS visibility timeout
 - **Client disconnect tolerance** — aggregator removes stale WebSocket sessions on disconnect; remaining clients are unaffected
+- **Isaac Sim dual-server isolation** — `sim_state.py` and `sim_camera.py` run as independent daemon threads; a crash in the camera server does not affect arm control
 
 ### Consistency
 - Commands are serialized through SQS — if multiple users send commands simultaneously, they are processed in arrival order by worker3
@@ -116,7 +149,7 @@ Polling the aggregator for new results would introduce latency and unnecessary l
 ### Latency
 - SQS long-poll (`waitTimeSeconds=20`) eliminates busy-waiting
 - Measured end-to-end latency: **~33–69ms** (SQS receive → Isaac Sim response → Redis publish)
-- VLA inference latency (~100–500ms for April 21 scope) runs asynchronously and does not block the real-time visualization pipeline
+- VLA inference latency: **~963–2289ms** (cache miss, full GPU inference) / **~19ms** (cache hit, Redis lookup)
 
 ---
 
@@ -138,13 +171,16 @@ worker3 catches the connection error, logs it, and does not delete the SQS messa
 The aggregator removes the stale WebSocket session on disconnect. All other connected clients continue receiving updates normally.
 
 **How many concurrent users can the system handle?**
-SQS and Redis pub/sub are effectively unbounded for this scale. The practical bottleneck is worker3 — a single poller processing one command at a time. Multiple worker3 instances can be added to increase throughput; SQS visibility timeout prevents duplicate processing. The April 21 stress test measures this curve directly.
+SQS and Redis pub/sub are effectively unbounded for this scale. The practical bottleneck is worker3 — a single poller processing one command at a time. Multiple worker3 instances can be added to increase throughput; SQS visibility timeout prevents duplicate processing. The stress test measures this curve directly.
 
 **Why Standard SQS queue and not FIFO?**
-Standard queue gives higher throughput and is sufficient for the current demo scope where actions are discrete and non-overlapping. FIFO guarantees strict ordering which matters when joint commands must be applied in exact sequence — that's a planned optimization for the April 21 showcase.
+Standard queue gives higher throughput and is sufficient for the current demo scope where actions are discrete and non-overlapping. FIFO guarantees strict ordering which matters when joint commands must be applied in exact sequence — that's a planned future optimization.
 
 **Is Redis a database in this system?**
-No. Redis is used exclusively as a pub/sub message broker on channel `roboparam:results`. There is no persistence, no reads, no key-value store usage. The registration service uses an in-memory store (Java `LinkedHashMap`) — also not Redis.
+No. On the Mac, Redis is used exclusively as a pub/sub message broker on channel `roboparam:results`. On EC2, Redis is used exclusively as an inference result cache keyed by instruction string. Neither instance uses Redis as a key-value store or database. The registration service uses an in-memory store (Java `LinkedHashMap`) — also not Redis.
+
+**Why run two Isaac Sim servers simultaneously?**
+`sim_state.py` owns arm control and block actions (port 8011). `sim_camera.py` owns the live camera feed for VLA inference (port 8012). Separating them means a camera server restart never disrupts arm control, and the VLA pipeline can be started/stopped independently of the demo action pipeline.
 
 ---
 
@@ -153,12 +189,13 @@ No. Redis is used exclusively as a pub/sub message broker on channel `roboparam:
 ### Prerequisites
 
 - Java 17+, Maven
-- Docker (for Redis)
+- Docker (for Redis on Mac)
 - AWS credentials configured (`aws configure`)
 - Node.js 18+ (for frontend)
 - Isaac Sim running on Windows machine — see [`/isaac-sim/README.md`](./isaac-sim)
+- EC2 g4dn.xlarge running with OpenVLA-7b and Redis — see [`/vla/VLA_EC2_SETUP.md`](./vla/VLA_EC2_SETUP.md)
 
-### 1. Start Redis
+### 1. Start Redis (Mac — pub/sub)
 
 ```bash
 docker run -d -p 6379:6379 redis:7
@@ -266,8 +303,6 @@ Their IAM user must also have `AmazonSQSFullAccess` (or equivalent) attached on 
 
 ---
 
-
-
 Edit `worker3/src/main/resources/application.yml` if needed:
 
 ```yaml
@@ -302,6 +337,51 @@ npm start
 ```
 
 Frontend starts on port `3000`.
+
+### 6. Start Isaac Sim (Windows)
+
+1. Open Isaac Sim, load `roboparam_scene.usd`
+2. In Script Editor, run `sim_state.py` — wait for "RoboParam endpoint ready"
+3. Open a new Script Editor tab, run `sim_camera.py` — wait for "[sim_camera] Camera server running"
+4. Hit **Play**
+
+Both servers must be running and Isaac Sim must be in Play mode before sending VLA inference requests.
+
+### 7. Start VLA inference (EC2)
+
+See [`/vla/VLA_EC2_SETUP.md`](./vla/VLA_EC2_SETUP.md) for full EC2 setup.
+
+```bash
+# Start EC2
+aws ec2 start-instances --instance-ids i-0e08e1a63fc48056e --region us-east-1
+
+# Get current public IP
+aws ec2 describe-instances \
+  --instance-ids i-0e08e1a63fc48056e \
+  --query "Reservations[0].Instances[0].PublicIpAddress" \
+  --region us-east-1 --output text
+
+# SSH in
+ssh -i ~/CS6650/openvla-key.pem ec2-user@<public-ip>
+
+# On EC2 — start Redis and inference service
+redis-server --daemonize yes
+conda activate openvla
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+python vla_inference_cached.py
+```
+
+Test from Mac:
+```bash
+curl -X POST http://<ec2-public-ip>:8090/infer \
+  -H "Content-Type: application/json" \
+  -d '{"instruction": "push the red block forward"}'
+```
+
+**Stop EC2 when done to avoid charges:**
+```bash
+aws ec2 stop-instances --instance-ids i-0e08e1a63fc48056e --region us-east-1
+```
 
 ---
 
@@ -345,6 +425,18 @@ Full result payload published to Redis channel `roboparam:results` and broadcast
   "endEffector": { "x": 0.1071, "y": 0.0005, "z": 0.9277 },
   "collision":   false,
   "latency":     50
+}
+```
+
+VLA inference response (`/infer`):
+
+```json
+{
+  "status": "ok",
+  "cache": "hit",
+  "instruction": "push the red block forward",
+  "joint_angles": [-0.005, -1.762, 0.0, -3.071, 0.012, 1.180, 2.897],
+  "latency_ms": 19.27
 }
 ```
 
@@ -394,6 +486,10 @@ Full pipeline verified: **SQS → worker3 → Isaac Sim → Redis → aggregator
 | Aggregator Redis subscribe | ✅ Full payload received by aggregator |
 | Aggregator → WebSocket | ✅ Payload pushed to connected clients |
 | Full pipeline | ✅ SQS → worker3 → Isaac Sim → Redis → aggregator → WebSocket |
+| Isaac Sim camera endpoint | ✅ `sim_camera.py` serving JPEG frames at port 8012 |
+| VLA end-to-end | ✅ curl → EC2 /infer → Isaac Sim /camera → OpenVLA → SQS → worker3 → Isaac Sim |
+| VLA cache miss | ✅ Full inference latency: ~963–2289ms |
+| VLA cache hit | ✅ Redis cache hit latency: ~19ms (99.1% reduction) |
 
 ### Isaac Sim — Action Execution (push_red / push_green / reset)
 
@@ -407,14 +503,18 @@ SQS messages sent from Mac terminal, worker3 consuming and forwarding to Isaac S
 
 ![Full pipeline: SQS to WebSocket to frontend](<docs/screenshots/end-to-end sqs msg test.png>)
 
+### VLA Inference — Cache Miss and Hit
+
+First request runs full OpenVLA GPU inference (cache miss, ~2172ms). Second identical request served from Redis cache (cache hit, ~19ms).
+
+![VLA cache miss and hit results](vla/vla_cache_miss_and_hit.png)
+
 ---
-
-
 
 ## Future Optimizations
 
-| Optimization | Description |
-|---|---|
-| OpenVLA inference caching | Cache results for repeated commands to reduce ~500ms inference latency to near-zero |
-| Redis Cluster | Replace single Redis node with a cluster to eliminate pub/sub single point of failure |
-| SQS FIFO Queue | Guarantee strict joint command ordering for deterministic robot motion |
+| Optimization | Description | Expected Impact |
+|---|---|---|
+| OpenVLA inference caching | ✅ Implemented — Redis instruction-level cache on EC2. Cache miss: 2172ms → Cache hit: 19ms | 99.1% latency reduction on repeated instructions |
+| Redis Cluster | Replace single Redis pub/sub node with a cluster to eliminate SPOF and support higher message volumes | Eliminates Redis as single point of failure; enables sub-ms pub/sub at scale |
+| SQS FIFO Queue | Replace Standard queue with FIFO to guarantee strict joint command ordering | Deterministic robot motion under concurrent multi-user load |
