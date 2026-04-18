@@ -1,4 +1,4 @@
-# Robo — Distributed Robot Parameter Pipeline with VLA Inference
+# Robo — Distributed Virtual Robotic Lab with VLA Inference
 
 CS6650 Final Project · Northeastern University
 
